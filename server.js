@@ -84,8 +84,6 @@ const Bin = mongoose.model("Bin", binSchema);
 
 // ===================== 3. AUTH MIDDLEWARES =====================
 
-const User = require("./models/User");
-const Admin = require("./models/Admin");
 
 const auth = async (req, res, next) => {
   // 1. Extract Token
