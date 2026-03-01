@@ -208,7 +208,16 @@ app.post("/bin/scan-to-open", auth, async (req, res) => {
       res.json({ success: true });
   } catch (error) { res.status(500).json({ success: false }); }
 });
-
+app.get("/bin/status/:binId", async (req, res) => {
+    try {
+        const bin = await Bin.findOne({ binId: req.params.binId });
+        if (!bin) return res.status(404).json({ success: false, message: "Bin not found" });
+        
+        res.json({ success: true, currentWeight: bin.currentWeight, maxCapacity: bin.maxCapacity, fillPercentage: bin.fillLevel });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
 app.post("/bin/hardware-deposit", async (req, res) => {
   const { binId, userId, weight, itemName, isMetal } = req.body;
   if (!isMetal) return res.status(400).json({ success: false, message: "NOT_METAL" });
