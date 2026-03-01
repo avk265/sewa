@@ -210,20 +210,25 @@ app.get("/admin/stats", async (req, res) => {
 });
 
 // 🟢 GET USER-SPECIFIC CONTRIBUTION HISTORY
+// 🟢 GET USER-SPECIFIC CONTRIBUTION HISTORY
 app.get("/user/history", auth, async (req, res) => {
     try {
-        // Query the dedicated activity collection
-        // Match the userId from the auth token
-        const history = await UserActivity.find({ userId: req.user.id })
-            .sort({ date: -1 }) // Newest first
-            .limit(100);       // Optional limit for performance
+        // Use req.userId (which you defined in your auth middleware)
+        // to find all actions belonging to this specific student/user.
+        const history = await UserActivity.find({ userId: req.userId })
+            .sort({ date: -1 }) // Show newest deposits first
+            .limit(50);         // Limit to 50 for better mobile performance
 
         res.json({
             success: true,
             history: history
         });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Error fetching history" });
+        console.error("History Fetch Error:", error);
+        res.status(500).json({ 
+            success: false, 
+            message: "Error fetching your activity history" 
+        });
     }
 });
 app.post("/bin/scan-to-open", auth, async (req, res) => {
