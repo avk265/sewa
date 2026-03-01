@@ -151,68 +151,56 @@ app.get("/profile", auth, async (req, res) => {
 
 // ===================== ADMIN: FLEET & USER MANAGEMENT =====================
 
-// 1. Fetch All Registered Citizens (for User Management)
-app.get("/admin/users", auth, adminOnly, async (req, res) => {
-    try {
-        // Fetch users, excluding passwords, sorted by newest first
-        const users = await User.find().select("-password").sort({ createdAt: -1 });
-        res.json({ success: true, users });
-    } catch (error) {
-        res.status(500).json({ success: false, message: "Error fetching user list" });
-    }
-});
+// ===================== 🟢 ADMIN COMMAND CENTER: FETCH ALL =====================
 
-// 2. Fetch Bin Fleet Status (for Dashboard Map/Stats)
-app.get("/admin/bins", auth, adminOnly, async (req, res) => {
+/**
+ * @route   GET /admin/stats
+ * @desc    Fetches all system data: Users, Bins, and Recent Activity Feed
+ * @access  Private (Admin Only)
+ */
+app.get("/admin/stats", auth, adminOnly, async (req, res) => {
     try {
+        // 1. Fetch all Citizens (sorted by newest, excluding passwords)
+        const users = await User.find()
+            .select("-password")
+            .sort({ createdAt: -1 });
+
+        // 2. Fetch the entire Bin Fleet
         const bins = await Bin.find();
-        
-        // Calculate fleet-wide stats for the dashboard cards
-        const stats = {
+
+        // 3. Fetch the System-Wide Live Feed (Activity Logs)
+        // We 'populate' the userId to get the name and email of the person who acted
+        const feed = await UserActivity.find()
+            .populate("userId", "name email")
+            .sort({ date: -1 })
+            .limit(50); // Get latest 50 events for the dashboard
+
+        // 4. Calculate High-Level Dashboard Metrics
+        const dashboardStats = {
+            totalUsers: users.length,
             totalBins: bins.length,
             fullBins: bins.filter(b => b.fillLevel >= 90).length,
-            totalWeightCollected: bins.reduce((acc, b) => acc + b.currentWeight, 0).toFixed(2)
+            totalEwasteKg: bins.reduce((acc, b) => acc + b.currentWeight, 0).toFixed(2)
         };
 
-        res.json({ success: true, bins, stats });
+        // 🟢 Return everything in a single optimized payload
+        res.json({
+            success: true,
+            users: users,
+            bins: bins,
+            feed: feed,
+            stats: dashboardStats,
+            serverTime: new Date()
+        });
+
     } catch (error) {
-        res.status(500).json({ success: false, message: "Error fetching bin fleet" });
+        console.error("🔥 Admin Stats Error:", error.message);
+        res.status(500).json({ 
+            success: false, 
+            message: "System failed to aggregate admin data." 
+        });
     }
 });
-
-// 3. Live Feed Logic (Socket.io)
-// This part is already active in your io.on("connection") block, 
-// but here is how you trigger a "Live Feed" event from a route:
-app.post("/admin/broadcast-alert", auth, adminOnly, async (req, res) => {
-    const { title, message, priority } = req.body;
-
-    // This pushes an instant notification to all connected Admin Dashboards
-    io.emit("admin-notification", {
-        type: "MANUAL_ALERT",
-        title: title,
-        message: message,
-        priority: priority || "high",
-        timestamp: new Date()
-    });
-
-    res.json({ success: true, message: "Alert broadcasted to fleet" });
-});
-
-// 4. Activity Audit Trail (View all recent system actions)
-app.get("/admin/live-feed", auth, adminOnly, async (req, res) => {
-    try {
-        // Fetches the last 50 activities across the entire system
-        const feed = await UserActivity.find()
-            .populate('userId', 'name email') // Link the user details
-            .sort({ date: -1 })
-            .limit(50);
-            
-        res.json({ success: true, feed });
-    } catch (error) {
-        res.status(500).json({ success: false });
-    }
-});
-
 app.post("/bin/scan-to-open", auth, async (req, res) => {
   let { binId } = req.body;
   if (typeof binId === 'object' && binId.binId) binId = binId.binId;
