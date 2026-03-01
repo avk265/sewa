@@ -160,45 +160,41 @@ app.get("/profile", auth, async (req, res) => {
  */
 app.get("/admin/stats", auth, adminOnly, async (req, res) => {
     try {
-        // 1. Fetch all Citizens (sorted by newest, excluding passwords)
-        const users = await User.find()
-            .select("-password")
-            .sort({ createdAt: -1 });
+        // 1. Fetch All Registered Users (Citizens)
+        // Sort by newest first and hide passwords for security
+        const users = await User.find().select("-password").sort({ createdAt: -1 });
 
-        // 2. Fetch the entire Bin Fleet
+        // 2. Fetch the Full Bin Fleet
         const bins = await Bin.find();
 
-        // 3. Fetch the System-Wide Live Feed (Activity Logs)
-        // We 'populate' the userId to get the name and email of the person who acted
-        const feed = await UserActivity.find()
-            .populate("userId", "name email")
+        // 3. Fetch System-Wide Activity (Live Feed)
+        // 🟢 CRITICAL: .populate pulls the User's name/email from the User collection
+        const activityFeed = await UserActivity.find()
+            .populate("userId", "name email") 
             .sort({ date: -1 })
-            .limit(50); // Get latest 50 events for the dashboard
+            .limit(50); // Keep dashboard fast by limiting to recent 50 events
 
-        // 4. Calculate High-Level Dashboard Metrics
-        const dashboardStats = {
+        // 4. Calculate High-Level Metrics for Dashboard Cards
+        const analytics = {
             totalUsers: users.length,
             totalBins: bins.length,
-            fullBins: bins.filter(b => b.fillLevel >= 90).length,
-            totalEwasteKg: bins.reduce((acc, b) => acc + b.currentWeight, 0).toFixed(2)
+            fullBinsCount: bins.filter(b => b.fillLevel >= 90).length,
+            totalWeightCollected: bins.reduce((acc, b) => acc + (b.currentWeight || 0), 0).toFixed(2)
         };
 
-        // 🟢 Return everything in a single optimized payload
+        // 🟢 Return unified payload to Flutter
         res.json({
             success: true,
-            users: users,
-            bins: bins,
-            feed: feed,
-            stats: dashboardStats,
+            users: users,      // Populates the "Users" Tab
+            bins: bins,        // Populates the "Bin Fleet" Tab
+            feed: activityFeed, // Populates the "Live Feed" Tab
+            stats: analytics,
             serverTime: new Date()
         });
 
     } catch (error) {
-        console.error("🔥 Admin Stats Error:", error.message);
-        res.status(500).json({ 
-            success: false, 
-            message: "System failed to aggregate admin data." 
-        });
+        console.error("🔥 Admin Fetch Error:", error.message);
+        res.status(500).json({ success: false, message: "Internal Server Error" });
     }
 });
 app.post("/bin/scan-to-open", auth, async (req, res) => {
