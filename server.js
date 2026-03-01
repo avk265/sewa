@@ -22,7 +22,7 @@ app.get("/", (req, res) => {
         <div style="font-family: sans-serif; text-align: center; padding-top: 100px; background: #e8f5e9; height: 100vh; margin:0;">
             <h1 style="color: #2e7d32; font-size: 3rem;">♻️ SEWA Backend Live</h1>
             <p style="font-size: 1.2rem; color: #555;">Server is listening for Mobile, Admin, and IoT Simulator connections.</p>
-            <div style="margin-top: 20px; padding: 20px; display: inline-block; background: white; border-radius: 15px; shadow: 0 4px 10px rgba(0,0,0,0.1);">
+            <div style="margin-top: 20px; padding: 20px; display: inline-block; background: white; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
                 <strong>Status:</strong> <span style="color: green;">Online</span> on Port 3000
             </div>
         </div>
@@ -39,41 +39,60 @@ mongoose
   .catch((err) => console.log("❌ MongoDB Connection Error:", err.message));
 
 
-// ===================== 3. MODELS (USER & BIN) ==========================
-// A. USER MODEL
-// A. USER MODEL
+// ===================== 3. MODELS ==========================
+
+// A. USER MODEL (Slim & Scalable)
 const User = mongoose.model("User", new mongoose.Schema({
       name: { type: String, required: true },
       email: { type: String, required: true, unique: true },
       password: { type: String, required: true },
-      role: { type: String, enum: ["user", "admin"], default: "user" },
       
       // 🟢 Unified Point Economy
       greenPoints: { type: Number, default: 0 }, 
       
-      // 🟢 Rehab Game Memory
+      // 🟢 Rehab Game Memory (Current State Only)
       rehabGameExpiry: { type: Date, default: null },
       rehabGameLevel: { type: Number, default: 1 }, 
-
       recycledItemsCount: { type: Number, default: 0 },
-      history: [{ itemName: String, weight: Number, binId: String, points: Number, date: { type: Date, default: Date.now } }],
-      redemptionHistory: [{ action: String, pointsDeducted: Number, date: { type: Date, default: Date.now } }]
   }, { timestamps: true }));
-// B. BIN MODEL (DYNAMIC)
+
+// B. ADMIN MODEL (Separated from Users)
+const Admin = mongoose.model("Admin", new mongoose.Schema({
+      name: { type: String, required: true },
+      email: { type: String, required: true, unique: true },
+      password: { type: String, required: true },
+  }, { timestamps: true }));
+
+// C. HISTORY / ACTIVITY LOG MODEL (Highly Scalable)
+const UserActivity = mongoose.model("UserActivity", new mongoose.Schema({
+      userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+      type: { type: String, enum: ['DEPOSIT', 'REDEMPTION', 'GAME_UPDATE'], required: true },
+      
+      // Data attached depending on the type of activity
+      itemName: { type: String, default: null },
+      weight: { type: Number, default: null },
+      binId: { type: String, default: null },
+      points: { type: Number, default: null },
+      actionDetail: { type: String, default: null },
+      
+      date: { type: Date, default: Date.now }
+}));
+
+// D. BIN MODEL (DYNAMIC)
 const binSchema = new mongoose.Schema({
     binId: { type: String, required: true, unique: true },
     name: { type: String, required: true },
     lat: { type: Number, required: true },
     lng: { type: Number, required: true },
-    currentWeight: { type: Number, default: 0.0 }, // Tracks weight dynamically
-    maxCapacity: { type: Number, default: 10.0 }   // e.g., 10kg max
+    currentWeight: { type: Number, default: 0.0 },
+    maxCapacity: { type: Number, default: 10.0 }, // e.g., 10kg max
+    inventory: [{ itemName: String, weight: Number, depositedBy: String, date: { type: Date, default: Date.now } }]
 });
 
-// Virtual property to calculate fill level percentage dynamically
 binSchema.virtual('fillLevel').get(function() {
     return Math.min(100, Math.round((this.currentWeight / this.maxCapacity) * 100));
 });
-binSchema.set('toJSON', { virtuals: true }); // Ensure virtuals are sent to Flutter/HTML
+binSchema.set('toJSON', { virtuals: true }); 
 
 const Bin = mongoose.model("Bin", binSchema);
 
@@ -112,10 +131,16 @@ const adminOnly = (req, res, next) => {
 app.post("/register", async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
-    if (await User.findOne({ email })) return res.json({ success: false, message: "User already exists" });
-    
     const hashedPassword = await bcrypt.hash(password, 10);
-    await User.create({ name, email, password: hashedPassword, role: role || "user" });
+
+    if (role === "admin") {
+        if (await Admin.findOne({ email })) return res.json({ success: false, message: "Admin already exists" });
+        await Admin.create({ name, email, password: hashedPassword });
+    } else {
+        if (await User.findOne({ email })) return res.json({ success: false, message: "User already exists" });
+        await User.create({ name, email, password: hashedPassword });
+    }
+    
     res.json({ success: true, message: "Registration successful" });
   } catch (error) { 
     res.status(500).json({ success: false, message: error.message }); 
@@ -125,14 +150,23 @@ app.post("/register", async (req, res) => {
 app.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
-    const user = await User.findOne({ email });
+    
+    // Check User Collection First
+    let user = await User.findOne({ email });
+    let role = "user";
+
+    // If not found in Users, check Admin Collection
+    if (!user) {
+        user = await Admin.findOne({ email });
+        role = "admin";
+    }
     
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.json({ success: false, message: "Invalid credentials" });
     }
     
-    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET || "sewa_super_secret");
-    res.json({ success: true, token, user });
+    const token = jwt.sign({ id: user._id, role: role }, process.env.JWT_SECRET || "sewa_super_secret");
+    res.json({ success: true, token, user, role });
   } catch (error) { 
     res.status(500).json({ success: false, message: error.message }); 
   }
@@ -140,15 +174,18 @@ app.post("/login", async (req, res) => {
 
 app.get("/profile", auth, async (req, res) => {
   try {
-    const user = await User.findById(req.userId).select("-password");
-    res.json({ success: true, user });
+    let user = await User.findById(req.userId).select("-password");
+    if(!user && req.userRole === "admin") user = await Admin.findById(req.userId).select("-password");
+    
+    // Fetch user history from the separated collection
+    const history = await UserActivity.find({ userId: req.userId }).sort({ date: -1 }).limit(20);
+    
+    res.json({ success: true, user, history });
   } catch { res.json({ success: false }); }
 });
 
 // ===================== 6. IOT BIN SIMULATOR LOGIC ===================
 
-
-// B. FETCH LIVE BIN STATUS (For HTML Simulator UI)
 app.get("/bin/status/:binId", async (req, res) => {
     try {
         const bin = await Bin.findOne({ binId: req.params.binId });
@@ -160,37 +197,65 @@ app.get("/bin/status/:binId", async (req, res) => {
     }
 });
 
-// C. HARDWARE DEPOSIT -> UPDATE DB WEIGHT & REWARD USER
 // A. MOBILE APP SCANS QR -> TRIGGER UNLOCK
 app.post("/bin/scan-to-open", auth, async (req, res) => {
   let { binId } = req.body;
   
-  // 🟢 AGGRESSIVE CLEANUP: Fixes Flutter JSON formatting issues
   if (typeof binId === 'object' && binId.binId) binId = binId.binId;
   if (typeof binId === 'string') binId = binId.replace(/["'{}]/g, '').trim(); 
 
-  console.log(`📡 Unlock request -> Bin: [${binId}] | User: [${req.userId}]`);
-  
-  io.emit("admin-notification", { 
-    type: "BIN_ACCESS", 
-    message: `🔓 Unlock Request`, 
-    binId: binId, 
-    userId: req.userId 
-  });
-  
-  res.json({ success: true });
+  try {
+      const bin = await Bin.findOne({ binId: binId });
+      if (!bin) return res.status(404).json({ success: false, message: "Bin not found" });
+
+      // 🛑 CAPACITY CHECK GATEKEEPER
+      if (bin.currentWeight >= bin.maxCapacity) {
+          console.log(`⛔ Unlock Denied -> Bin: [${binId}] is FULL.`);
+          
+          // Alert Admins instantly
+          io.emit("admin-notification", { 
+              type: "BIN_FULL", 
+              message: `🚨 ALERT: ${bin.name} (${binId}) is at maximum capacity!`, 
+              binId: binId
+          });
+
+          // Return HTML Payload to Flutter
+          return res.json({ 
+              success: false, 
+              isFull: true,
+              message: "BIN_FULL",
+              html: `
+                  <div style="font-family: sans-serif; text-align: center; padding: 40px 20px; background-color: #ffebee; border-radius: 12px;">
+                      <h1 style="color: #d32f2f; font-size: 2.5rem; margin-bottom: 10px;">⛔ Bin is Full!</h1>
+                      <p style="color: #555; font-size: 1.2rem; line-height: 1.5;">This SEWA bin has reached its maximum capacity of ${bin.maxCapacity}kg.</p>
+                      <p style="color: #555; font-size: 1rem;">The administration team has been notified. Please locate the nearest available bin using the map.</p>
+                  </div>
+              `
+          });
+      }
+
+      console.log(`📡 Unlock request -> Bin: [${binId}] | User: [${req.userId}]`);
+      
+      io.emit("admin-notification", { 
+        type: "BIN_ACCESS", 
+        message: `🔓 Unlock Request`, 
+        binId: binId, 
+        userId: req.userId 
+      });
+      
+      res.json({ success: true });
+
+  } catch (error) {
+      res.status(500).json({ success: false, message: "Server error checking bin status." });
+  }
 });
 
-// C. HARDWARE DEPOSIT -> UPDATE DB WEIGHT & REWARD USER
-// C. HARDWARE DEPOSIT -> ADD OBJECT TO BIN
-// C. HARDWARE DEPOSIT -> ADD OBJECT TO BIN
 // C. HARDWARE DEPOSIT -> ADD OBJECT TO BIN
 app.post("/bin/hardware-deposit", async (req, res) => {
   let { binId, userId, weight, itemName, isMetal } = req.body;
   
   console.log(`\n📥 Incoming Drop -> Item: [${itemName}], Metal: [${isMetal}], Weight: [${weight}kg]`);
 
-  // 1. GATEKEEPER: Reject if the metal checkbox wasn't ticked
   if (isMetal === false) {
       console.log("❌ Rejected: No metal detected.");
       return res.status(400).json({ success: false, message: "Validation Failed: Not Metal." });
@@ -199,25 +264,39 @@ app.post("/bin/hardware-deposit", async (req, res) => {
   try {
     if (!userId) return res.status(400).json({ success: false, message: "User ID is missing." });
 
-    // 2. Update User Data
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ success: false, message: "User not found." });
 
     const recycleCount = user.recycledItemsCount || 0;
     const pointsEarned = Math.floor(10.0 * weight * Math.pow(0.9, recycleCount));
 
-    // 🟢 DYNAMIC SCHEMA PATCH: If the user is old and doesn't have greenPoints, initialize it to 0 first.
     user.greenPoints = (user.greenPoints || 0) + pointsEarned;
     user.recycledItemsCount = recycleCount + 1;
-    
-    user.history.push({ itemName: itemName || "Hardware", weight, binId, points: pointsEarned });
     await user.save();
 
-    // 3. Update Bin Data
+    // 🟢 Log to separated UserActivity collection
+    await UserActivity.create({
+        userId: user._id,
+        type: 'DEPOSIT',
+        itemName: itemName || "Hardware",
+        weight: parseFloat(weight),
+        binId: binId,
+        points: pointsEarned
+    });
+
     const bin = await Bin.findOne({ binId: binId });
     if (bin) {
         bin.currentWeight += parseFloat(weight);
-        if (bin.currentWeight > bin.maxCapacity) bin.currentWeight = bin.maxCapacity; 
+        if (bin.currentWeight >= bin.maxCapacity) {
+            bin.currentWeight = bin.maxCapacity; 
+            
+            // Trigger Full Alert to Admins on deposit
+            io.emit("admin-notification", { 
+                type: "BIN_FULL", 
+                message: `🚨 ALERT: Deposit caused ${bin.name} (${binId}) to reach maximum capacity!`, 
+                binId: binId
+            });
+        }
         
         bin.inventory = bin.inventory || [];
         bin.inventory.push({
@@ -228,13 +307,11 @@ app.post("/bin/hardware-deposit", async (req, res) => {
         await bin.save();
     }
 
-    // 4. Send Success Signal
     io.emit("admin-notification", { 
         type: "BIN_STATUS_UPDATE", status: "CLOSED", 
         message: `Success! ${itemName} secured.`, binId: binId
     });
 
-    // Return the updated greenPoints balance to Flutter
     res.json({ success: true, pointsEarned, greenPoints: user.greenPoints });
 
   } catch (e) {
@@ -242,11 +319,12 @@ app.post("/bin/hardware-deposit", async (req, res) => {
     res.status(500).json({ success: false, message: e.message });
   }
 });
+
 // ===================== 7. DYNAMIC MAP & ROUTING ========================
 
 app.get("/bins/map", auth, async (req, res) => {
   try {
-      const bins = await Bin.find(); // Fetch from DB dynamically
+      const bins = await Bin.find(); 
       res.json({ success: true, bins });
   } catch (error) {
       res.status(500).json({ success: false });
@@ -256,7 +334,7 @@ app.get("/bins/map", auth, async (req, res) => {
 app.get("/nearest-bins", auth, async (req, res) => {
     try {
         const { lat, lng } = req.query;
-        const bins = await Bin.find(); // Fetch from DB dynamically
+        const bins = await Bin.find(); 
         
         if (!lat || !lng) return res.json({ success: true, nearestBins: bins });
 
@@ -271,7 +349,7 @@ app.get("/nearest-bins", auth, async (req, res) => {
         };
 
         const sorted = bins.map(b => {
-            const doc = b.toJSON(); // Convert mongoose doc to plain object to attach distance
+            const doc = b.toJSON(); 
             doc.distanceKm = parseFloat(calculateDistance(userLat, userLng, b.lat, b.lng).toFixed(2));
             return doc;
         }).sort((a, b) => a.distanceKm - b.distanceKm);
@@ -284,21 +362,20 @@ app.get("/nearest-bins", auth, async (req, res) => {
 
 app.get("/admin/stats", auth, adminOnly, async (req, res) => {
   try {
-      const users = await User.find({ role: "user" }).select("-password");
+      const users = await User.find().select("-password");
       const totalBins = await Bin.countDocuments();
       res.json({ success: true, users, totalBins });
   } catch (error) {
       res.status(500).json({ success: false });
   }
 });
-// ===================== HEALTHCARE REDEMPTION ROUTES =====================
+
 // ===================== HEALTHCARE REDEMPTION ROUTES =====================
 app.post("/redeem-game", auth, async (req, res) => {
     try {
         const user = await User.findById(req.userId);
         const THRESHOLD = 100;
 
-        // 🟢 Guarantee the field exists before math
         const currentPoints = user.greenPoints || 0;
 
         if (user.rehabGameExpiry && user.rehabGameExpiry > new Date()) {
@@ -309,11 +386,17 @@ app.post("/redeem-game", auth, async (req, res) => {
             return res.status(403).json({ success: false, message: `Need ${THRESHOLD} points to unlock.` });
         }
 
-        // Deduct points and update history
         user.greenPoints = currentPoints - THRESHOLD;
         user.rehabGameExpiry = new Date(Date.now() + (60 * 24 * 60 * 60 * 1000)); // 60 Days
-        user.redemptionHistory.push({ action: "Unlocked 60-Day Rehab Game", pointsDeducted: THRESHOLD });
         await user.save();
+
+        // 🟢 Log Redemption to separated UserActivity collection
+        await UserActivity.create({
+            userId: user._id,
+            type: 'REDEMPTION',
+            actionDetail: "Unlocked 60-Day Rehab Game",
+            points: THRESHOLD
+        });
 
         res.json({ success: true, message: "Rehab Game Unlocked!", greenPoints: user.greenPoints });
     } catch (e) { 
@@ -328,10 +411,18 @@ app.post("/update-game-progress", auth, async (req, res) => {
         if (newLevel > user.rehabGameLevel) {
             user.rehabGameLevel = newLevel;
             await user.save();
+            
+            // Log progression
+            await UserActivity.create({
+                userId: user._id,
+                type: 'GAME_UPDATE',
+                actionDetail: `Reached Level ${newLevel}`
+            });
         }
         res.json({ success: true, level: user.rehabGameLevel });
     } catch (e) { res.status(500).json({ success: false }); }
 });
+
 // ===================== 8. WEBSOCKETS (FORCE BROADCAST) ==========================
 io.on("connection", (socket) => {
   socket.on("hardware-status", (data) => {
@@ -339,17 +430,16 @@ io.on("connection", (socket) => {
     io.emit("admin-notification", data); 
   });
 });
+
 // ===================== GLOVE RELAY BROKER =====================
 const WebSocket = require('ws');
 
-// Attach a WebSocket bridge specifically to the "/glove" path
 const wss = new WebSocket.Server({ server: server, path: "/glove" });
 
 wss.on('connection', (ws) => {
     console.log("🔗 Device Connected to Glove Relay!");
 
     ws.on('message', (message) => {
-        // Forward ESP32 hardware data to the Flutter app instantly
         wss.clients.forEach((client) => {
             if (client !== ws && client.readyState === WebSocket.OPEN) {
                 client.send(message.toString());
@@ -359,6 +449,7 @@ wss.on('connection', (ws) => {
 
     ws.on('close', () => console.log("❌ Device disconnected from Relay"));
 });
+
 const PORT = 3000;
 server.listen(PORT, "0.0.0.0", () =>
   console.log(`🚀 SEWA Server running at http://0.0.0.0:${PORT}`)
