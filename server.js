@@ -147,54 +147,53 @@ app.get("/profile", auth, async (req, res) => {
   } catch { res.json({ success: false }); }
 });
 
-// ===================== 5. HARDWARE & BIN INTERACTION =====================
-
-// ===================== ADMIN: FLEET & USER MANAGEMENT =====================
-
-// ===================== 🟢 ADMIN COMMAND CENTER: FETCH ALL =====================
+// ===================== 🟢 CORRECTED ADMIN: UNIFIED DATA FETCH =====================
 
 /**
  * @route   GET /admin/stats
- * @desc    Fetches all system data: Users, Bins, and Recent Activity Feed
- * @access  Private (Admin Only)
+ * @desc    Aggregates Users, Bins, and Activity Logs using correct Schema mapping
  */
 app.get("/admin/stats", auth, adminOnly, async (req, res) => {
     try {
-        // 1. Fetch All Registered Users (Citizens)
-        // Sort by newest first and hide passwords for security
-        const users = await User.find().select("-password").sort({ createdAt: -1 });
+        // 1. Fetch Users: Match your User Schema fields (greenPoints, rehabGameLevel)
+        const users = await User.find()
+            .select("-password") // Security: Never send hashes to the dashboard
+            .sort({ createdAt: -1 });
 
-        // 2. Fetch the Full Bin Fleet
+        // 2. Fetch Bins: Match your Bin Schema (currentWeight, maxCapacity, fillLevel virtual)
         const bins = await Bin.find();
 
-        // 3. Fetch System-Wide Activity (Live Feed)
-        // 🟢 CRITICAL: .populate pulls the User's name/email from the User collection
-        const activityFeed = await UserActivity.find()
-            .populate("userId", "name email") 
+        // 3. Fetch Activity Feed: CRITICAL SCHEMA MAPPING
+        // We use .populate() because UserActivity stores 'userId' as an ObjectId.
+        // This 'joins' the User collection to get the 'name' and 'email'.
+        const feed = await UserActivity.find()
+            .populate("userId", "name email") // Reference the 'User' model fields
             .sort({ date: -1 })
-            .limit(50); // Keep dashboard fast by limiting to recent 50 events
+            .limit(50); // Optimization: Only send latest 50 events
 
-        // 4. Calculate High-Level Metrics for Dashboard Cards
-        const analytics = {
-            totalUsers: users.length,
-            totalBins: bins.length,
-            fullBinsCount: bins.filter(b => b.fillLevel >= 90).length,
-            totalWeightCollected: bins.reduce((acc, b) => acc + (b.currentWeight || 0), 0).toFixed(2)
+        // 4. Calculate Analytics (For Admin Summary Cards)
+        const systemAnalytics = {
+            totalCitizens: users.length,
+            activeBins: bins.length,
+            binsRequiringPickup: bins.filter(b => (b.currentWeight / b.maxCapacity) >= 0.9).length,
+            totalKgCollected: bins.reduce((acc, b) => acc + (b.currentWeight || 0), 0).toFixed(2)
         };
 
-        // 🟢 Return unified payload to Flutter
+        // 🟢 Response payload keys match the Flutter 'AdminDashboardScreen' exactly
         res.json({
             success: true,
-            users: users,      // Populates the "Users" Tab
-            bins: bins,        // Populates the "Bin Fleet" Tab
-            feed: activityFeed, // Populates the "Live Feed" Tab
-            stats: analytics,
-            serverTime: new Date()
+            users: users,      // maps to usersList in Flutter
+            bins: bins,        // maps to binsList in Flutter
+            feed: feed,        // maps to historicalFeed in Flutter
+            stats: systemAnalytics
         });
 
     } catch (error) {
-        console.error("🔥 Admin Fetch Error:", error.message);
-        res.status(500).json({ success: false, message: "Internal Server Error" });
+        console.error("🔥 Admin Stats Schema Error:", error.message);
+        res.status(500).json({ 
+            success: false, 
+            message: "Database mapping error. Check collection relationships." 
+        });
     }
 });
 app.post("/bin/scan-to-open", auth, async (req, res) => {
