@@ -213,22 +213,25 @@ app.get("/admin/stats", async (req, res) => {
 // 🟢 GET USER-SPECIFIC CONTRIBUTION HISTORY
 app.get("/user/history", auth, async (req, res) => {
     try {
-        // Use req.userId (which you defined in your auth middleware)
-        // to find all actions belonging to this specific student/user.
-        const history = await UserActivity.find({ userId: req.userId })
-            .sort({ date: -1 }) // Show newest deposits first
-            .limit(50);         // Limit to 50 for better mobile performance
+        // 🟢 Robust ID check: Use req.userId from your middleware
+        const searchId = req.userId; 
 
+        if (!searchId) {
+            return res.status(401).json({ success: false, message: "User identity lost" });
+        }
+
+        const history = await UserActivity.find({ userId: searchId })
+            .sort({ date: -1 })
+            .limit(50);
+
+        console.log(`✅ History sent for User: ${searchId}`);
+        
         res.json({
             success: true,
             history: history
         });
     } catch (error) {
-        console.error("History Fetch Error:", error);
-        res.status(500).json({ 
-            success: false, 
-            message: "Error fetching your activity history" 
-        });
+        res.status(500).json({ success: false, message: "Database Error" });
     }
 });
 app.post("/bin/scan-to-open", auth, async (req, res) => {
