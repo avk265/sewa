@@ -41,25 +41,24 @@ mongoose
 
 // ===================== 3. MODELS (USER & BIN) ==========================
 // A. USER MODEL
-const User = mongoose.model(
-  "User",
-  new mongoose.Schema({
+const User = mongoose.model("User", new mongoose.Schema({
       name: { type: String, required: true },
       email: { type: String, required: true, unique: true },
       password: { type: String, required: true },
       role: { type: String, enum: ["user", "admin"], default: "user" },
-      mobile: { type: String },
-      address: { type: String },
-      greenPoints: { type: Number, default: 0 },
+      
+      // 🟢 Dual-Point Economy
+      currentBalance: { type: Number, default: 0 }, 
+      lifetimePoints: { type: Number, default: 0 }, 
+      
+      // 🟢 Rehab Game Memory
+      rehabGameExpiry: { type: Date, default: null },
+      rehabGameLevel: { type: Number, default: 1 }, 
+
       recycledItemsCount: { type: Number, default: 0 },
-      history: [{
-          weight: Number,
-          binId: String,
-          points: Number,
-          date: { type: Date, default: Date.now }
-      }]
-  }, { timestamps: true })
-);
+      history: [{ itemName: String, weight: Number, binId: String, points: Number, date: { type: Date, default: Date.now } }],
+      redemptionHistory: [{ action: String, pointsDeducted: Number, date: { type: Date, default: Date.now } }]
+  }, { timestamps: true }));
 
 // B. BIN MODEL (DYNAMIC)
 const binSchema = new mongoose.Schema({
@@ -350,4 +349,5 @@ wss.on('connection', (ws) => {
 const PORT = 3000;
 server.listen(PORT, "0.0.0.0", () =>
   console.log(`🚀 SEWA Server running at http://0.0.0.0:${PORT}`)
+
 );
