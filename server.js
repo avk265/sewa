@@ -84,15 +84,37 @@ const Bin = mongoose.model("Bin", binSchema);
 
 // ===================== 3. AUTH MIDDLEWARES =====================
 
-const auth = (req, res, next) => {
+const User = require("./models/User");
+const Admin = require("./models/Admin");
+
+const auth = async (req, res, next) => {
+  // 1. Extract Token
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.status(401).json({ success: false, message: "No token" });
+
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
+    // 2. Verify JWT
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    
+    // 3. DATABASE CHECK: Look in the correct collection
+    let account;
+    if (decoded.role === "admin") {
+      account = await Admin.findById(decoded.id); // 👈 Checks Admin Collection
+    } else {
+      account = await User.findById(decoded.id);  // 👈 Checks User Collection
+    }
+
+    // 4. Validate existence
+    if (!account) {
+      return res.status(401).json({ success: false, message: "Account not found" });
+    }
+
+    // 5. Attach to Request
     req.userId = decoded.id;
     req.userRole = decoded.role;
+    req.user = account; // Useful for accessing name/email later
     next();
-  } catch {
+  } catch (err) {
     return res.status(401).json({ success: false, message: "Invalid session" });
   }
 };
