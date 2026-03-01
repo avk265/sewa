@@ -1,0 +1,286 @@
+require("dotenv").config();
+const express = require("express");
+const mongoose = require("mongoose");
+const cors = require("cors");
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
+const http = require("http");
+const { Server } = require("socket.io");
+const WebSocket = require('ws');
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: "*", credentials: true } });
+
+app.use(express.static(__dirname));
+app.use(express.json()); 
+app.use(express.urlencoded({ extended: true }));
+app.use(cors());
+
+const JWT_SECRET = process.env.JWT_SECRET || "sewa_super_secret_2026";
+const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/sewa";
+
+// ===================== 1. ROOT ROUTE =====================
+app.get("/", (req, res) => {
+    res.send(`
+        <div style="font-family: sans-serif; text-align: center; padding-top: 100px; background: #e8f5e9; height: 100vh; margin:0;">
+            <h1 style="color: #2e7d32; font-size: 3rem;">♻️ SEWA Cloud Core Live</h1>
+            <p style="font-size: 1.2rem; color: #555;">Processing Mobile, Admin, and Smart Glove Data</p>
+            <div style="margin-top: 20px; padding: 20px; display: inline-block; background: white; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
+                <strong>Status:</strong> <span style="color: green;">Online</span> | <strong>Port:</strong> 3000
+            </div>
+        </div>
+    `);
+});
+
+// ===================== 2. DATABASE MODELS =====================
+
+// A. USER MODEL (Citizens)
+const User = mongoose.model("User", new mongoose.Schema({
+      name: { type: String, required: true },
+      email: { type: String, required: true, unique: true },
+      password: { type: String, required: true },
+      greenPoints: { type: Number, default: 0 }, 
+      rehabGameExpiry: { type: Date, default: null },
+      rehabGameLevel: { type: Number, default: 1 }, 
+      recycledItemsCount: { type: Number, default: 0 },
+  }, { timestamps: true }));
+
+// B. ADMIN MODEL (Authorities)
+const Admin = mongoose.model("Admin", new mongoose.Schema({
+      name: { type: String, required: true },
+      email: { type: String, required: true, unique: true },
+      password: { type: String, required: true },
+  }, { timestamps: true }));
+
+// C. SCALABLE ACTIVITY LOG (New: Stores all history separately)
+const UserActivity = mongoose.model("UserActivity", new mongoose.Schema({
+      userId: { type: mongoose.Schema.Types.ObjectId, required: true },
+      type: { type: String, enum: ['DEPOSIT', 'REDEMPTION', 'GAME_UPDATE'], required: true },
+      itemName: { type: String, default: null },
+      weight: { type: Number, default: null },
+      binId: { type: String, default: null },
+      points: { type: Number, default: null },
+      actionDetail: { type: String, default: null },
+      date: { type: Date, default: Date.now }
+}));
+
+// D. SMART BIN MODEL
+const binSchema = new mongoose.Schema({
+    binId: { type: String, required: true, unique: true },
+    name: { type: String, required: true },
+    lat: { type: Number, required: true },
+    lng: { type: Number, required: true },
+    currentWeight: { type: Number, default: 0.0 }, 
+    maxCapacity: { type: Number, default: 10.0 },
+    inventory: [{ itemName: String, weight: Number, depositedBy: String, date: { type: Date, default: Date.now } }]
+});
+
+binSchema.virtual('fillLevel').get(function() {
+    return Math.min(100, Math.round((this.currentWeight / this.maxCapacity) * 100));
+});
+binSchema.set('toJSON', { virtuals: true }); 
+const Bin = mongoose.model("Bin", binSchema);
+
+// ===================== 3. AUTH MIDDLEWARES =====================
+
+const auth = (req, res, next) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return res.status(401).json({ success: false, message: "No token" });
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.userId = decoded.id;
+    req.userRole = decoded.role;
+    next();
+  } catch {
+    return res.status(401).json({ success: false, message: "Invalid session" });
+  }
+};
+
+const adminOnly = (req, res, next) => {
+  if (req.userRole !== "admin") return res.status(403).json({ success: false, message: "Admin access denied" });
+  next();
+};
+
+// ===================== 4. AUTH & PROFILE ROUTES =====================
+
+app.post("/register", async (req, res) => {
+  try {
+    const { name, email, password, role } = req.body;
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    if (role === "admin") {
+        if (await Admin.findOne({ email })) return res.json({ success: false, message: "Admin already exists" });
+        await Admin.create({ name, email, password: hashedPassword });
+    } else {
+        if (await User.findOne({ email })) return res.json({ success: false, message: "User already exists" });
+        await User.create({ name, email, password: hashedPassword });
+    }
+    res.json({ success: true, message: "Registration successful" });
+  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+});
+
+app.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    let user = await User.findOne({ email }) || await Admin.findOne({ email });
+    const role = (user instanceof Admin) ? "admin" : "user";
+
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return res.json({ success: false, message: "Invalid credentials" });
+    }
+    
+    const token = jwt.sign({ id: user._id, role: role }, JWT_SECRET, { expiresIn: '7d' });
+    res.json({ success: true, token, user, role });
+  } catch (error) { res.status(500).json({ success: false }); }
+});
+
+app.get("/profile", auth, async (req, res) => {
+  try {
+    const model = (req.userRole === "admin") ? Admin : User;
+    const user = await model.findById(req.userId).select("-password");
+    
+    // 🟢 Fetch Activity from the new separated collection
+    const history = await UserActivity.find({ userId: req.userId }).sort({ date: -1 }).limit(25);
+    
+    res.json({ success: true, user, history });
+  } catch { res.json({ success: false }); }
+});
+
+// ===================== 5. HARDWARE & BIN INTERACTION =====================
+
+
+
+app.post("/bin/scan-to-open", auth, async (req, res) => {
+  let { binId } = req.body;
+  if (typeof binId === 'object' && binId.binId) binId = binId.binId;
+  binId = binId.toString().replace(/["'{}]/g, '').trim(); 
+
+  try {
+      const bin = await Bin.findOne({ binId });
+      if (!bin) return res.status(404).json({ success: false, message: "Bin not found" });
+
+      // 🔴 Capacity Gatekeeper
+      if (bin.currentWeight >= bin.maxCapacity) {
+          io.emit("admin-notification", { type: "BIN_FULL", binId, message: "Alert: Bin is Full" });
+          return res.json({ success: false, isFull: true, message: "BIN_FULL" });
+      }
+
+      console.log(`🔓 Unlocking Bin: ${binId}`);
+      io.emit("admin-notification", { type: "BIN_ACCESS", binId, userId: req.userId });
+      res.json({ success: true });
+  } catch (error) { res.status(500).json({ success: false }); }
+});
+
+app.post("/bin/hardware-deposit", async (req, res) => {
+  const { binId, userId, weight, itemName, isMetal } = req.body;
+  if (!isMetal) return res.status(400).json({ success: false, message: "NOT_METAL" });
+
+  try {
+    const user = await User.findById(userId);
+    const bin = await Bin.findOne({ binId });
+    if (!user || !bin) return res.status(404).json({ success: false });
+
+    const pointsEarned = Math.floor(10 * weight * Math.pow(0.95, user.recycledItemsCount || 0));
+
+    // 🟢 Atomic Updates for Data Integrity
+    await User.findByIdAndUpdate(userId, { 
+        $inc: { greenPoints: pointsEarned, recycledItemsCount: 1 } 
+    });
+    await Bin.findOneAndUpdate({ binId }, { 
+        $inc: { currentWeight: parseFloat(weight) },
+        $push: { inventory: { itemName, weight, depositedBy: userId } }
+    });
+
+    // 🟢 Log to Activity Collection
+    await UserActivity.create({
+        userId, type: 'DEPOSIT', itemName, weight, binId, points: pointsEarned, actionDetail: `Recycled ${itemName}`
+    });
+
+    io.emit("admin-notification", { type: "DEPOSIT_SUCCESS", binId, message: `Secured ${weight}kg` });
+    res.json({ success: true, pointsEarned });
+  } catch (e) { res.status(500).json({ success: false }); }
+});
+
+// ===================== 6. MAPS & ADMIN =====================
+
+app.get("/nearest-bins", auth, async (req, res) => {
+    try {
+        const { lat, lng } = req.query;
+        const bins = await Bin.find();
+        if (!lat || !lng) return res.json({ success: true, nearestBins: bins });
+
+        const calculateDistance = (lat1, lon1, lat2, lon2) => {
+            const toRad = (v) => (v * Math.PI) / 180;
+            const a = Math.sin(toRad(lat2 - lat1) / 2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(toRad(lon2 - lon1) / 2)**2;
+            return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        };
+
+        const sorted = bins.map(b => {
+            const d = b.toJSON();
+            d.distanceKm = parseFloat(calculateDistance(lat, lng, b.lat, b.lng).toFixed(2));
+            return d;
+        }).sort((a, b) => a.distanceKm - b.distanceKm);
+
+        res.json({ success: true, nearestBins: sorted });
+    } catch (e) { res.status(500).json({ success: false }); }
+});
+
+app.post("/admin/empty-bin", auth, adminOnly, async (req, res) => {
+    await Bin.findOneAndUpdate({ binId: req.body.binId }, { $set: { currentWeight: 0, inventory: [] } });
+    res.json({ success: true, message: "Bin reset" });
+});
+
+// ===================== 7. HEALTHCARE REDEMPTION =====================
+
+app.post("/redeem-game", auth, async (req, res) => {
+    try {
+        const user = await User.findById(req.userId);
+        if (user.greenPoints < 100) return res.status(403).json({ success: false, message: "INSUFFICIENT_POINTS" });
+
+        await User.findByIdAndUpdate(req.userId, { 
+            $inc: { greenPoints: -100 },
+            $set: { rehabGameExpiry: new Date(Date.now() + (60 * 24 * 60 * 60 * 1000)) } 
+        });
+
+        await UserActivity.create({
+            userId: req.userId, type: 'REDEMPTION', actionDetail: "Unlocked Rehab Game (60 Days)", points: 100
+        });
+
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ success: false }); }
+});
+
+app.post("/update-game-progress", auth, async (req, res) => {
+    const { newLevel } = req.body;
+    await User.findByIdAndUpdate(req.userId, { $set: { rehabGameLevel: newLevel } });
+    await UserActivity.create({ userId: req.userId, type: 'GAME_UPDATE', actionDetail: `Reached Level ${newLevel}` });
+    res.json({ success: true });
+});
+
+// ===================== 8. WEBSOCKETS (GLOVE RELAY) =====================
+
+const wss = new WebSocket.Server({ server, path: "/glove" });
+wss.on('connection', (ws) => {
+    console.log("🧤 Glove Connected");
+    ws.on('message', (msg) => {
+        wss.clients.forEach(client => {
+            if (client !== ws && client.readyState === WebSocket.OPEN) {
+                client.send(msg.toString());
+            }
+        });
+    });
+});
+
+io.on("connection", (socket) => {
+    socket.on("hardware-status", (data) => io.emit("admin-notification", data));
+});
+
+// ===================== 9. START SERVER =====================
+
+const PORT = process.env.PORT || 3000;
+mongoose.connect(MONGO_URI).then(() => {
+    server.listen(PORT, "0.0.0.0", () => {
+        console.log(`🚀 SEWA SERVER ACTIVE ON PORT ${PORT}`);
+    });
+});
