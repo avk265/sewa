@@ -149,29 +149,25 @@ app.get("/profile", auth, async (req, res) => {
 
 // ===================== 🟢 CORRECTED ADMIN: UNIFIED DATA FETCH =====================
 
-/**
- * @route   GET /admin/stats
- * @desc    Aggregates Users, Bins, and Activity Logs using correct Schema mapping
- */
-app.get("/admin/stats", auth, adminOnly, async (req, res) => {
+// 🟢 server.js - Unified Admin Stats (Public Access)
+app.get("/admin/stats", async (req, res) => {
     try {
-        // 1. Fetch Users: Match your User Schema fields (greenPoints, rehabGameLevel)
+        // 1. Fetch Users (From the 'users' collection)
         const users = await User.find()
-            .select("-password") // Security: Never send hashes to the dashboard
+            .select("-password") 
             .sort({ createdAt: -1 });
 
-        // 2. Fetch Bins: Match your Bin Schema (currentWeight, maxCapacity, fillLevel virtual)
+        // 2. Fetch Bins (From the 'bins' collection)
         const bins = await Bin.find();
 
-        // 3. Fetch Activity Feed: CRITICAL SCHEMA MAPPING
-        // We use .populate() because UserActivity stores 'userId' as an ObjectId.
-        // This 'joins' the User collection to get the 'name' and 'email'.
+        // 3. Fetch Activity Feed (From the 'useractivities' collection)
+        // Note: Even though this is an admin route, the activity belongs to 'Users'
         const feed = await UserActivity.find()
-            .populate("userId", "name email") // Reference the 'User' model fields
+            .populate("userId", "name email") 
             .sort({ date: -1 })
-            .limit(50); // Optimization: Only send latest 50 events
+            .limit(50);
 
-        // 4. Calculate Analytics (For Admin Summary Cards)
+        // 4. Summary Analytics
         const systemAnalytics = {
             totalCitizens: users.length,
             activeBins: bins.length,
@@ -179,21 +175,17 @@ app.get("/admin/stats", auth, adminOnly, async (req, res) => {
             totalKgCollected: bins.reduce((acc, b) => acc + (b.currentWeight || 0), 0).toFixed(2)
         };
 
-        // 🟢 Response payload keys match the Flutter 'AdminDashboardScreen' exactly
         res.json({
             success: true,
-            users: users,      // maps to usersList in Flutter
-            bins: bins,        // maps to binsList in Flutter
-            feed: feed,        // maps to historicalFeed in Flutter
+            users: users,
+            bins: bins,
+            feed: feed,
             stats: systemAnalytics
         });
 
     } catch (error) {
-        console.error("🔥 Admin Stats Schema Error:", error.message);
-        res.status(500).json({ 
-            success: false, 
-            message: "Database mapping error. Check collection relationships." 
-        });
+        console.error("🔥 Public Admin Stats Error:", error.message);
+        res.status(500).json({ success: false, message: "Error aggregating data" });
     }
 });
 app.post("/bin/scan-to-open", auth, async (req, res) => {
