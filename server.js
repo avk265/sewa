@@ -212,23 +212,23 @@ app.get("/admin/stats", async (req, res) => {
 // 🟢 GET USER-SPECIFIC CONTRIBUTION HISTORY
 // 🟢 GET USER-SPECIFIC CONTRIBUTION HISTORY
 // 🟢 STANDALONE HISTORY ROUTE
+// 🟢 CORRECTED USER HISTORY ROUTE
 app.get("/user/history", auth, async (req, res) => {
     try {
-        // Use req.userId which is set by your 'auth' middleware
+        // Use req.userId from the auth middleware
         const history = await UserActivity.find({ userId: req.userId })
             .sort({ date: -1 })
             .limit(50);
 
-        // Debug log to your Render console to verify the ID is reaching the query
-        console.log(`📜 History requested for ID: ${req.userId}`);
+        console.log(`✅ History found for User: ${req.userId} (Count: ${history.length})`);
 
-        res.json({ 
-            success: true, 
-            history: history 
+        res.json({
+            success: true,
+            history: history
         });
     } catch (error) {
-        console.error("🔥 History Route Error:", error.message);
-        res.status(500).json({ success: false, message: "Database fetch failed" });
+        console.error("🔥 User History Error:", error.message);
+        res.status(500).json({ success: false, message: "Server error" });
     }
 });
 app.post("/bin/scan-to-open", auth, async (req, res) => {
