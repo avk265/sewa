@@ -211,27 +211,24 @@ app.get("/admin/stats", async (req, res) => {
 
 // 🟢 GET USER-SPECIFIC CONTRIBUTION HISTORY
 // 🟢 GET USER-SPECIFIC CONTRIBUTION HISTORY
+// 🟢 STANDALONE HISTORY ROUTE
 app.get("/user/history", auth, async (req, res) => {
     try {
-        // 🟢 Robust ID check: Use req.userId from your middleware
-        const searchId = req.userId; 
-
-        if (!searchId) {
-            return res.status(401).json({ success: false, message: "User identity lost" });
-        }
-
-        const history = await UserActivity.find({ userId: searchId })
+        // Use req.userId which is set by your 'auth' middleware
+        const history = await UserActivity.find({ userId: req.userId })
             .sort({ date: -1 })
             .limit(50);
 
-        console.log(`✅ History sent for User: ${searchId}`);
-        
-        res.json({
-            success: true,
-            history: history
+        // Debug log to your Render console to verify the ID is reaching the query
+        console.log(`📜 History requested for ID: ${req.userId}`);
+
+        res.json({ 
+            success: true, 
+            history: history 
         });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Database Error" });
+        console.error("🔥 History Route Error:", error.message);
+        res.status(500).json({ success: false, message: "Database fetch failed" });
     }
 });
 app.post("/bin/scan-to-open", auth, async (req, res) => {
