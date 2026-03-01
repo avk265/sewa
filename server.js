@@ -41,15 +41,15 @@ mongoose
 
 // ===================== 3. MODELS (USER & BIN) ==========================
 // A. USER MODEL
+// A. USER MODEL
 const User = mongoose.model("User", new mongoose.Schema({
       name: { type: String, required: true },
       email: { type: String, required: true, unique: true },
       password: { type: String, required: true },
       role: { type: String, enum: ["user", "admin"], default: "user" },
       
-      // 🟢 Dual-Point Economy
-      currentBalance: { type: Number, default: 0 }, 
-      lifetimePoints: { type: Number, default: 0 }, 
+      // 🟢 Unified Point Economy
+      greenPoints: { type: Number, default: 0 }, 
       
       // 🟢 Rehab Game Memory
       rehabGameExpiry: { type: Date, default: null },
@@ -59,7 +59,6 @@ const User = mongoose.model("User", new mongoose.Schema({
       history: [{ itemName: String, weight: Number, binId: String, points: Number, date: { type: Date, default: Date.now } }],
       redemptionHistory: [{ action: String, pointsDeducted: Number, date: { type: Date, default: Date.now } }]
   }, { timestamps: true }));
-
 // B. BIN MODEL (DYNAMIC)
 const binSchema = new mongoose.Schema({
     binId: { type: String, required: true, unique: true },
@@ -185,6 +184,7 @@ app.post("/bin/scan-to-open", auth, async (req, res) => {
 // C. HARDWARE DEPOSIT -> UPDATE DB WEIGHT & REWARD USER
 // C. HARDWARE DEPOSIT -> ADD OBJECT TO BIN
 // C. HARDWARE DEPOSIT -> ADD OBJECT TO BIN
+// C. HARDWARE DEPOSIT -> ADD OBJECT TO BIN
 app.post("/bin/hardware-deposit", async (req, res) => {
   let { binId, userId, weight, itemName, isMetal } = req.body;
   
@@ -206,10 +206,11 @@ app.post("/bin/hardware-deposit", async (req, res) => {
     const recycleCount = user.recycledItemsCount || 0;
     const pointsEarned = Math.floor(10.0 * weight * Math.pow(0.9, recycleCount));
 
+    // 🟢 DYNAMIC SCHEMA PATCH: If the user is old and doesn't have greenPoints, initialize it to 0 first.
     user.greenPoints = (user.greenPoints || 0) + pointsEarned;
     user.recycledItemsCount = recycleCount + 1;
-    // Save the specific item name to history
-    user.history.push({ itemName: itemName || "Smartphone", weight, binId, points: pointsEarned });
+    
+    user.history.push({ itemName: itemName || "Hardware", weight, binId, points: pointsEarned });
     await user.save();
 
     // 3. Update Bin Data
@@ -218,10 +219,9 @@ app.post("/bin/hardware-deposit", async (req, res) => {
         bin.currentWeight += parseFloat(weight);
         if (bin.currentWeight > bin.maxCapacity) bin.currentWeight = bin.maxCapacity; 
         
-        // Save the specific item to the Bin's inventory
         bin.inventory = bin.inventory || [];
         bin.inventory.push({
-            itemName: itemName || "Smartphone",
+            itemName: itemName || "Hardware",
             weight: parseFloat(weight),
             depositedBy: userId
         });
@@ -234,7 +234,8 @@ app.post("/bin/hardware-deposit", async (req, res) => {
         message: `Success! ${itemName} secured.`, binId: binId
     });
 
-    res.json({ success: true, pointsEarned });
+    // Return the updated greenPoints balance to Flutter
+    res.json({ success: true, pointsEarned, greenPoints: user.greenPoints });
 
   } catch (e) {
     console.error("🔥 Server Error:", e.message);
@@ -291,21 +292,33 @@ app.get("/admin/stats", auth, adminOnly, async (req, res) => {
   }
 });
 // ===================== HEALTHCARE REDEMPTION ROUTES =====================
+// ===================== HEALTHCARE REDEMPTION ROUTES =====================
 app.post("/redeem-game", auth, async (req, res) => {
     try {
         const user = await User.findById(req.userId);
         const THRESHOLD = 100;
 
-        if (user.rehabGameExpiry && user.rehabGameExpiry > new Date()) return res.status(400).json({ success: false, message: "Game already unlocked." });
-        if (user.currentBalance < THRESHOLD) return res.status(403).json({ success: false, message: `Need ${THRESHOLD} points to unlock.` });
+        // 🟢 Guarantee the field exists before math
+        const currentPoints = user.greenPoints || 0;
 
-        user.currentBalance -= THRESHOLD;
+        if (user.rehabGameExpiry && user.rehabGameExpiry > new Date()) {
+            return res.status(400).json({ success: false, message: "Game already unlocked." });
+        }
+        
+        if (currentPoints < THRESHOLD) {
+            return res.status(403).json({ success: false, message: `Need ${THRESHOLD} points to unlock.` });
+        }
+
+        // Deduct points and update history
+        user.greenPoints = currentPoints - THRESHOLD;
         user.rehabGameExpiry = new Date(Date.now() + (60 * 24 * 60 * 60 * 1000)); // 60 Days
         user.redemptionHistory.push({ action: "Unlocked 60-Day Rehab Game", pointsDeducted: THRESHOLD });
         await user.save();
 
-        res.json({ success: true, message: "Rehab Game Unlocked!", newBalance: user.currentBalance });
-    } catch (e) { res.status(500).json({ success: false, message: "Server error" }); }
+        res.json({ success: true, message: "Rehab Game Unlocked!", greenPoints: user.greenPoints });
+    } catch (e) { 
+        res.status(500).json({ success: false, message: "Server error" }); 
+    }
 });
 
 app.post("/update-game-progress", auth, async (req, res) => {
@@ -349,5 +362,4 @@ wss.on('connection', (ws) => {
 const PORT = 3000;
 server.listen(PORT, "0.0.0.0", () =>
   console.log(`🚀 SEWA Server running at http://0.0.0.0:${PORT}`)
-
 );
