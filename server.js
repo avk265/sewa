@@ -188,6 +188,24 @@ app.get("/admin/stats", async (req, res) => {
         res.status(500).json({ success: false, message: "Error aggregating data" });
     }
 });
+
+// 🟢 GET USER-SPECIFIC CONTRIBUTION HISTORY
+app.get("/user/history", auth, async (req, res) => {
+    try {
+        // Query the dedicated activity collection
+        // Match the userId from the auth token
+        const history = await UserActivity.find({ userId: req.user.id })
+            .sort({ date: -1 }) // Newest first
+            .limit(100);       // Optional limit for performance
+
+        res.json({
+            success: true,
+            history: history
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Error fetching history" });
+    }
+});
 app.post("/bin/scan-to-open", auth, async (req, res) => {
   let { binId } = req.body;
   if (typeof binId === 'object' && binId.binId) binId = binId.binId;
