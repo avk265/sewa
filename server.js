@@ -15,7 +15,7 @@ const io = require("socket.io")(server, {
         origin: "*", // 🟢 Allows Flutter to connect
         methods: ["GET", "POST"]
     },
-  transports: ['websocket']
+  transports: ['websocket', 'polling']
 });
 
 app.use(express.static(__dirname));
