@@ -504,22 +504,27 @@ app.post("/update-game-progress", auth, async (req, res) => {
 
 // ===================== 8. WEBSOCKETS (GLOVE RELAY) =====================
 
+// ===================== 8. GLOVE TO APP BRIDGE =====================
+
 const wss = new WebSocket.Server({ server, path: "/glove" });
+
 wss.on('connection', (ws) => {
+    console.log("🦾 Physical Glove Hardware Linked via WS");
+
     ws.on('message', (msg) => {
         try {
             const data = JSON.parse(msg);
             
-            // 🛡️ Filter out junk data, accept only SEWA hardware
+            // 🛡️ 1. Hardware Check
             if (data.protocol !== "SEWA_GLOVE_V1") return; 
 
-            // Relay to all Flutter clients (App will do the final ID check)
-            wss.clients.forEach(client => {
-                if (client !== ws && client.readyState === WebSocket.OPEN) {
-                    client.send(JSON.stringify(data));
-                }
-            });
-        } catch (e) { /* Ignore bad JSON */ }
+            // 🟢 2. THE BRIDGE: Emit this data to the Socket.io pool
+            // This allows your Flutter app (Socket.io) to hear the ESP32 (Raw WS)
+            io.emit("glove-data-stream", data);
+
+        } catch (e) {
+            console.log("⚠️ Bad data format from glove");
+        }
     });
 });
 
