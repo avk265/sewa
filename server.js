@@ -524,14 +524,14 @@ wss.on('connection', (ws) => {
 });
 
 // Look for your io.on("connection") block
+// ===================== 8. UNIFIED SOCKET.IO LOGIC =====================
+
 io.on("connection", (socket) => {
     console.log("🔌 New Client Connected: " + socket.id);
 
-    // 🟢 ADD THIS: Catch the alert from the Bin Simulator
+    // 🟢 A. Catch "hardware-alert" (Used by Bin Simulator)
     socket.on("hardware-alert", (data) => {
         console.log("🚨 Bin Alert Received:", data.message);
-        
-        // Broadcast to ALL connected clients (The Admin Drawer will hear this)
         io.emit("admin-notification", {
             type: "CRITICAL_ALERT",
             binId: data.binId,
@@ -539,12 +539,22 @@ io.on("connection", (socket) => {
         });
     });
 
+    // 🟢 B. Catch direct "admin-notification" (Used when simulator bypasses relay)
+    socket.on("admin-notification", (data) => {
+        console.log("📢 Direct Admin Notification Relayed:", data.message);
+        // Relay to all other connected clients (The Flutter App)
+        io.emit("admin-notification", data);
+    });
+
+    // 🟢 C. Catch "hardware-status" (Used for general bin health/heartbeats)
+    socket.on("hardware-status", (data) => {
+        console.log("🛰️ Hardware Status Update:", data.binId);
+        io.emit("admin-notification", data);
+    });
+
     socket.on("disconnect", () => {
         console.log("❌ Client Disconnected");
     });
-});
-io.on("connection", (socket) => {
-    socket.on("hardware-status", (data) => io.emit("admin-notification", data));
 });
 // ===================== 9. START SERVER =====================
 
