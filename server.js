@@ -194,30 +194,30 @@ app.get("/profile", auth, async (req, res) => {
 // 🟢 PATCH: Role-Aware Profile Update
 app.patch("/update-profile", auth, async (req, res) => {
     try {
-        const userId = req.user._id;
-        const userRole = req.user.role; // Assumes your 'auth' middleware sets this
+        // 🟢 FIX 1: Use the variables set by your 'auth' middleware
+        const userId = req.userId; 
+        const userRole = req.userRole; 
         const { name, mobile, address } = req.body;
 
         let updatedRecord;
 
         if (userRole === 'admin') {
-            // 🛡️ Admin Model Update (Name only)
+            // 🟢 FIX 2: Ensure 'Admin' is the correct Mongoose Model name
             updatedRecord = await Admin.findByIdAndUpdate(
                 userId,
                 { $set: { name } },
-                { new: true }
+                { new: true, runValidators: true }
             );
         } else {
-            // ♻️ User Model Update (Name, Mobile, Address)
             updatedRecord = await User.findByIdAndUpdate(
                 userId,
                 { $set: { name, mobile, address } },
-                { new: true }
+                { new: true, runValidators: true }
             );
         }
 
         if (!updatedRecord) {
-            return res.status(404).json({ success: false, message: "Account not found" });
+            return res.status(404).json({ success: false, message: "Account not found in the selected collection" });
         }
 
         res.json({ 
