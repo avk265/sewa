@@ -411,63 +411,85 @@ if (bin.currentWeight >= bin.maxCapacity) {
 app.get("/bin/status/:binId", async (req, res) => {
     try {
         const bin = await Bin.findOne({ binId: req.params.binId });
-        if (!bin) return res.status(404).json({ success: false, message: "Bin not found" });
-        if (binData.status === 'full') {
-            const io = req.app.get("socketio");
-            io.emit("admin-notification", {
-                type: "BIN_FULL",
-                binId: bin.binId,
-                message: `🚨 ALERT: Bin ${bin.binId} is at ${bin.fillLevel}%!`
-            });
+        
+        if (!bin) {
+            return res.status(404).json({ success: false, message: "Bin not found" });
         }
-        res.json({ success: true, currentWeight: bin.currentWeight, maxCapacity: bin.maxCapacity, fillPercentage: bin.fillLevel });
+
+        // 🟢 FIX 1: Define the threshold logic
+        const fillLevel = bin.fillLevel || 0;
+        const isFull = fillLevel >= 90;
+
+        // 🟢 FIX 2: Only emit if the bin is actually critical
+        if (isFull) {
+            const io = req.app.get("socketio");
+            if (io) {
+                io.emit("admin-notification", {
+                    type: "BIN_FULL",
+                    binId: bin.binId,
+                    message: `🚨 ALERT: Bin ${bin.binId} is at ${fillLevel.toFixed(1)}%!`
+                });
+            }
+        }
+
+        // 🟢 FIX 3: Return the calculated data
+        res.json({ 
+            success: true, 
+            currentWeight: bin.currentWeight, 
+            maxCapacity: bin.maxCapacity, 
+            fillPercentage: fillLevel 
+        });
+
     } catch (error) {
+        console.error("🔥 Error in bin status route:", error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
 app.post("/bin/hardware-deposit", async (req, res) => {
   const { binId, userId, weight, itemName, isMetal } = req.body;
+  
   if (!isMetal) return res.status(400).json({ success: false, message: "NOT_METAL" });
 
   try {
+    const io = req.app.get("socketio"); 
     const user = await User.findById(userId);
     const bin = await Bin.findOne({ binId });
+
     if (!user || !bin) return res.status(404).json({ success: false });
 
-    const pointsEarned = Math.floor(10 * weight * Math.pow(0.95, user.recycledItemsCount || 0));
+    // 1. Calculate Rewards
+    const numWeight = parseFloat(weight);
+    const pointsEarned = Math.floor(10 * numWeight * Math.pow(0.95, user.recycledItemsCount || 0));
 
-        // 🟢 2. THE TRIGGER: If bin crosses 90%, alert the Admin
-        if (bin.fillLevel >= 90) {
-            const io = req.app.get("socketio");
-            
-            console.log(`🚨 CRITICAL: Bin ${binId} is full. Emitting to Admin...`);
-            
-            // This is the "Shout" the Flutter Drawer is listening for
-            io.emit("admin-notification", {
-                binId: binId,
-                type: "BIN_FULL",
-                message: `🚨 URGENT: Bin ${binId} has reached ${bin.fillLevel}% capacity!`
-            });
-        }
-    // 🟢 Atomic Updates for Data Integrity
+    // 2. Atomic Updates (Weight and Points)
     await User.findByIdAndUpdate(userId, { 
         $inc: { greenPoints: pointsEarned, recycledItemsCount: 1 } 
     });
+    
     await Bin.findOneAndUpdate({ binId }, { 
-        $inc: { currentWeight: parseFloat(weight) },
-        $push: { inventory: { itemName, weight, depositedBy: userId } }
+        $inc: { currentWeight: numWeight },
+        // Note: fillLevel update happens here or via a pre-save hook in Mongoose
+        $push: { inventory: { itemName, weight: numWeight, depositedBy: userId } }
     });
 
-    // 🟢 Log to Activity Collection
+    // 3. Log Activity
     await UserActivity.create({
-        userId, type: 'DEPOSIT', itemName, weight, binId, points: pointsEarned, actionDetail: `Recycled ${itemName}`
+        userId, type: 'DEPOSIT', itemName, weight: numWeight, binId, points: pointsEarned, actionDetail: `Recycled ${itemName}`
     });
 
-    io.emit("admin-notification", { type: "DEPOSIT_SUCCESS", binId, message: `Secured ${weight}kg` });
-    res.json({ success: true, pointsEarned });
-  } catch (e) { res.status(500).json({ success: false }); }
-});
+    // 4. Success "Shout" (Not an alert, just a confirmation)
+    io.emit("admin-notification", { 
+        type: "DEPOSIT_SUCCESS", 
+        binId, 
+        message: `New Deposit: ${numWeight}kg of ${itemName}` 
+    });
 
+    res.json({ success: true, pointsEarned });
+
+  } catch (e) { 
+      res.status(500).json({ success: false }); 
+  }
+});
 // ===================== 6. MAPS & ADMIN =====================
 
 app.get("/nearest-bins", auth, async (req, res) => {
