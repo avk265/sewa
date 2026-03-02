@@ -411,7 +411,14 @@ app.get("/bin/status/:binId", async (req, res) => {
     try {
         const bin = await Bin.findOne({ binId: req.params.binId });
         if (!bin) return res.status(404).json({ success: false, message: "Bin not found" });
-        
+        if (binData.status === 'full') {
+            const io = req.app.get("socketio");
+            io.emit("admin-notification", {
+                type: "BIN_FULL",
+                binId: bin.binId,
+                message: `🚨 ALERT: Bin ${bin.binId} is at ${bin.fillLevel}%!`
+            });
+        }
         res.json({ success: true, currentWeight: bin.currentWeight, maxCapacity: bin.maxCapacity, fillPercentage: bin.fillLevel });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
