@@ -383,10 +383,23 @@ app.post("/bin/scan-to-open", auth, async (req, res) => {
       if (!bin) return res.status(404).json({ success: false, message: "Bin not found" });
 
       // 🔴 Capacity Gatekeeper
-      if (bin.currentWeight >= bin.maxCapacity) {
-          io.emit("admin-notification", { type: "BIN_FULL", binId, message: "Alert: Bin is Full" });
-          return res.json({ success: false, isFull: true, message: "BIN_FULL" });
-      }
+      // Inside your bin scan-to-open route
+if (bin.currentWeight >= bin.maxCapacity) {
+    console.log(`🚨 Bin ${binId} is full. Notifying Admins.`);
+
+    // 🟢 Broadly emit so both the Drawer (Static) and Dashboard (Live) hear it
+    io.emit("admin-notification", { 
+        type: "BIN_FULL", 
+        binId: binId, 
+        message: `CRITICAL: Bin ${binId} is at maximum capacity!` 
+    });
+
+    return res.json({ 
+        success: false, 
+        isFull: true, 
+        message: "This bin is currently full. Please find the nearest SEWA bin." 
+    });
+}
 
       console.log(`🔓 Unlocking Bin: ${binId}`);
       io.emit("admin-notification", { type: "BIN_ACCESS", binId, userId: req.userId });
