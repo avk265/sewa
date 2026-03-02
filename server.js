@@ -189,7 +189,29 @@ app.get("/profile", auth, async (req, res) => {
     res.json({ success: true, user, history });
   } catch { res.json({ success: false }); }
 });
+// 🟢 PATCH: Dynamic Profile Update
+app.patch("/update-profile", auth, async (req, res) => {
+    try {
+        const user = await User.findById(req.user._id);
+        if (!user) return res.status(404).json({ success: false, message: "User not found" });
 
+        const { name, mobile, address } = req.body;
+
+        // Update only the fields provided in the request
+        if (name) user.name = name;
+        
+        // Only allow mobile/address updates if the user isn't an admin
+        if (user.role !== 'admin') {
+            if (mobile) user.mobile = mobile;
+            if (address) user.address = address;
+        }
+
+        await user.save();
+        res.json({ success: true, message: "Profile updated!", user });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
 // ===================== 🟢 CORRECTED ADMIN: UNIFIED DATA FETCH =====================
 // ================= 1. DATABASE MODELS UPDATE =================
 
