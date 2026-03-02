@@ -436,6 +436,19 @@ app.post("/bin/hardware-deposit", async (req, res) => {
 
     const pointsEarned = Math.floor(10 * weight * Math.pow(0.95, user.recycledItemsCount || 0));
 
+        // 🟢 2. THE TRIGGER: If bin crosses 90%, alert the Admin
+        if (bin.fillLevel >= 90) {
+            const io = req.app.get("socketio");
+            
+            console.log(`🚨 CRITICAL: Bin ${binId} is full. Emitting to Admin...`);
+            
+            // This is the "Shout" the Flutter Drawer is listening for
+            io.emit("admin-notification", {
+                binId: binId,
+                type: "BIN_FULL",
+                message: `🚨 URGENT: Bin ${binId} has reached ${bin.fillLevel}% capacity!`
+            });
+        }
     // 🟢 Atomic Updates for Data Integrity
     await User.findByIdAndUpdate(userId, { 
         $inc: { greenPoints: pointsEarned, recycledItemsCount: 1 } 
