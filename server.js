@@ -469,7 +469,14 @@ wss.on('connection', (ws) => {
 io.on("connection", (socket) => {
     socket.on("hardware-status", (data) => io.emit("admin-notification", data));
 });
-
+socket.on("hardware-alert", (data) => {
+    // Relay the critical bin alert to the Admin dashboard/drawer
+    io.emit("admin-notification", { 
+        type: "CRITICAL_ALERT", 
+        binId: data.binId, 
+        message: data.message 
+    });
+});
 // ===================== 9. START SERVER =====================
 
 const PORT = process.env.PORT || 3000;
