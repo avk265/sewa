@@ -10,7 +10,12 @@ const WebSocket = require('ws');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*", credentials: true } });
+const io = require("socket.io")(server, {
+    cors: {
+        origin: "*", // 🟢 Allows Flutter to connect
+        methods: ["GET", "POST"]
+    }
+});
 
 app.use(express.static(__dirname));
 app.use(express.json()); 
