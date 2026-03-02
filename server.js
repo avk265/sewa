@@ -359,17 +359,20 @@ app.post("/admin/assign-glove", auth, adminOnly, async (req, res) => {
 // 🟢 CORRECTED USER HISTORY ROUTE
 app.get("/user/history", auth, async (req, res) => {
     try {
-        // Use req.userId from the auth middleware
-        const history = await UserActivity.find({ userId: req.userId })
+        const history = await UserActivity.find({ 
+                userId: req.userId,
+                type: "DEPOSIT"   // 👈 filter added
+            })
             .sort({ date: -1 })
             .limit(50);
 
-        console.log(`✅ History found for User: ${req.userId} (Count: ${history.length})`);
+        console.log(`✅ Deposit History found for User: ${req.userId} (Count: ${history.length})`);
 
         res.json({
             success: true,
             history: history
         });
+
     } catch (error) {
         console.error("🔥 User History Error:", error.message);
         res.status(500).json({ success: false, message: "Server error" });
