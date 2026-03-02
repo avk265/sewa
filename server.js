@@ -35,16 +35,34 @@ app.get("/", (req, res) => {
 
 // ===================== 2. DATABASE MODELS =====================
 
-// A. USER MODEL (Citizens)
+
 const User = mongoose.model("User", new mongoose.Schema({
-      name: { type: String, required: true },
-      email: { type: String, required: true, unique: true },
-      password: { type: String, required: true },
-      greenPoints: { type: Number, default: 0 }, 
-      rehabGameExpiry: { type: Date, default: null },
-      rehabGameLevel: { type: Number, default: 1 }, 
-      recycledItemsCount: { type: Number, default: 0 },
-  }, { timestamps: true }));
+    name: { type: String, required: true },
+    email: { type: String, required: true, unique: true },
+    password: { type: String, required: true },
+    address: { type: String, default: "" }, // 👈 NEW: Used for grouping
+    communityName: { type: String, default: null }, // 👈 NEW: Assigned by Admin
+    greenPoints: { type: Number, default: 0 }, 
+    gloveId: { type: String, default: null }, 
+    rehabGameExpiry: { type: Date, default: null },
+    rehabGameLevel: { type: Number, default: 1 }, 
+    recycledItemsCount: { type: Number, default: 0 },
+}, { timestamps: true }));
+
+// New Campaign Model for Community Goals/Raffles
+const Campaign = mongoose.model("Campaign", new mongoose.Schema({
+    title: { type: String, required: true },
+    description: { type: String, required: true },
+    communityName: { type: String, required: true }, // Links to the user's community
+    type: { type: String, enum: ['GOAL', 'RAFFLE'], required: true },
+    targetPoints: { type: Number, required: true },
+    raisedPoints: { type: Number, default: 0 },
+    isActive: { type: Boolean, default: true },
+    contributors: [{
+        userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        pointsDonated: Number
+    }]
+}));
 
 // B. ADMIN MODEL (Authorities)
 const Admin = mongoose.model("Admin", new mongoose.Schema({
@@ -168,7 +186,66 @@ app.get("/profile", auth, async (req, res) => {
 });
 
 // ===================== 🟢 CORRECTED ADMIN: UNIFIED DATA FETCH =====================
+// ================= 1. DATABASE MODELS UPDATE =================
 
+// Update existing User Schema to include address and community
+
+
+// ================= 2. COMMUNITY ROUTES =================
+
+// 🟢 ADMIN: Assign users to a community based on matching address keyword
+app.post("/admin/assign-community", auth, adminOnly, async (req, res) => {
+    try {
+        const { addressKeyword, communityName } = req.body;
+        // Find users whose address contains the keyword (case-insensitive)
+        const result = await User.updateMany(
+            { address: { $regex: addressKeyword, $options: "i" } },
+            { $set: { communityName: communityName } }
+        );
+        res.json({ success: true, message: `Added ${result.modifiedCount} users to ${communityName} community.` });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// 🟢 USER: Fetch campaigns for their specific community
+app.get("/community/campaigns", auth, async (req, res) => {
+    try {
+        const user = await User.findById(req.userId);
+        if (!user.communityName) return res.json({ success: true, campaigns: [] });
+
+        const campaigns = await Campaign.find({ communityName: user.communityName, isActive: true });
+        res.json({ success: true, campaigns, userBalance: user.greenPoints });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Error fetching campaigns" });
+    }
+});
+
+// 🟢 USER: Donate points to a community campaign
+app.post("/community/donate", auth, async (req, res) => {
+    try {
+        const { campaignId, amount } = req.body;
+        const user = await User.findById(req.userId);
+        
+        if (user.greenPoints < amount) return res.status(400).json({ success: false, message: "Insufficient points" });
+
+        // Deduct points from user, add to campaign
+        await User.findByIdAndUpdate(req.userId, { $inc: { greenPoints: -amount } });
+        await Campaign.findByIdAndUpdate(campaignId, {
+            $inc: { raisedPoints: amount },
+            $push: { contributors: { userId: req.userId, pointsDonated: amount } }
+        });
+
+        // Log the activity
+        await UserActivity.create({
+            userId: req.userId, type: 'REDEMPTION', actionDetail: `Donated ${amount} pts to Community Goal`, points: -amount
+        });
+
+        res.json({ success: true, message: `Successfully donated ${amount} points!` });
+    } catch (error) {
+        res.status(500).json({ success: false });
+    }
+});
 // 🟢 server.js - Unified Admin Stats (Public Access)
 app.get("/admin/stats", async (req, res) => {
     try {
@@ -208,7 +285,46 @@ app.get("/admin/stats", async (req, res) => {
         res.status(500).json({ success: false, message: "Error aggregating data" });
     }
 });
+// ================= 1. UPDATE USER MODEL =================
+// Add 'gloveId' to your existing User schema
 
+// ================= 2. ADMIN ROUTE TO PAIR GLOVE =================
+// Add this so Admins can assign a specific physical glove to a student
+app.post("/admin/assign-glove", auth, adminOnly, async (req, res) => {
+    try {
+        const { userEmail, gloveId } = req.body;
+        const user = await User.findOneAndUpdate(
+            { email: userEmail }, 
+            { gloveId: gloveId }, 
+            { new: true }
+        );
+        if (!user) return res.status(404).json({ success: false, message: "User not found" });
+        res.json({ success: true, message: `Glove ${gloveId} linked to ${user.name}` });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ================= 3. WEBSOCKET GATEKEEPER =================
+// Update your existing WebSocket logic
+const wss = new WebSocket.Server({ server, path: "/glove" });
+wss.on('connection', (ws) => {
+    ws.on('message', (msg) => {
+        try {
+            const data = JSON.parse(msg);
+            
+            // 🛡️ Filter out junk data, accept only SEWA hardware
+            if (data.protocol !== "SEWA_GLOVE_V1") return; 
+
+            // Relay to all Flutter clients (App will do the final ID check)
+            wss.clients.forEach(client => {
+                if (client !== ws && client.readyState === WebSocket.OPEN) {
+                    client.send(JSON.stringify(data));
+                }
+            });
+        } catch (e) { /* Ignore bad JSON */ }
+    });
+});
 // 🟢 GET USER-SPECIFIC CONTRIBUTION HISTORY
 // 🟢 GET USER-SPECIFIC CONTRIBUTION HISTORY
 // 🟢 STANDALONE HISTORY ROUTE
