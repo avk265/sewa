@@ -190,29 +190,45 @@ app.get("/profile", auth, async (req, res) => {
   } catch { res.json({ success: false }); }
 });
 // 🟢 PATCH: Dynamic Profile Update
+// 🟢 PATCH: Role-Aware Profile Update
 app.patch("/update-profile", auth, async (req, res) => {
     try {
-        const user = await User.findById(req.user._id);
-        if (!user) return res.status(404).json({ success: false, message: "User not found" });
-
+        const userId = req.user._id;
+        const userRole = req.user.role; // Assumes your 'auth' middleware sets this
         const { name, mobile, address } = req.body;
 
-        // Update only the fields provided in the request
-        if (name) user.name = name;
-        
-        // Only allow mobile/address updates if the user isn't an admin
-        if (user.role !== 'admin') {
-            if (mobile) user.mobile = mobile;
-            if (address) user.address = address;
+        let updatedRecord;
+
+        if (userRole === 'admin') {
+            // 🛡️ Admin Model Update (Name only)
+            updatedRecord = await Admin.findByIdAndUpdate(
+                userId,
+                { $set: { name } },
+                { new: true }
+            );
+        } else {
+            // ♻️ User Model Update (Name, Mobile, Address)
+            updatedRecord = await User.findByIdAndUpdate(
+                userId,
+                { $set: { name, mobile, address } },
+                { new: true }
+            );
         }
 
-        await user.save();
-        res.json({ success: true, message: "Profile updated!", user });
+        if (!updatedRecord) {
+            return res.status(404).json({ success: false, message: "Account not found" });
+        }
+
+        res.json({ 
+            success: true, 
+            message: "Profile updated successfully", 
+            user: updatedRecord 
+        });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
 });
-// ===================== 🟢 CORRECTED ADMIN: UNIFIED DATA FETCH =====================
+//====== 🟢 CORRECTED ADMIN: UNIFIED DATA FETCH =====================
 // ================= 1. DATABASE MODELS UPDATE =================
 
 // Update existing User Schema to include address and community
