@@ -506,28 +506,28 @@ app.post("/update-game-progress", auth, async (req, res) => {
 
 // ===================== 8. GLOVE TO APP BRIDGE =====================
 
+// 🟢 SECTION 8: THE HARDWARE-TO-APP BRIDGE
 const wss = new WebSocket.Server({ server, path: "/glove" });
 
 wss.on('connection', (ws) => {
-    console.log("🦾 Physical Glove Hardware Linked via WS");
+    console.log("🦾 Hardware connected to /glove path");
 
     ws.on('message', (msg) => {
         try {
             const data = JSON.parse(msg);
             
-            // 🛡️ 1. Hardware Check
-            if (data.protocol !== "SEWA_GLOVE_V1") return; 
-
-            // 🟢 2. THE BRIDGE: Emit this data to the Socket.io pool
-            // This allows your Flutter app (Socket.io) to hear the ESP32 (Raw WS)
-            io.emit("glove-data-stream", data);
-
+            // 🛡️ Verify the SEWA Protocol
+            if (data.protocol === "SEWA_GLOVE_V1") {
+                // 🌉 THE BRIDGE: This pushes hardware data to the Flutter app
+                io.emit("glove-data-stream", data); 
+                
+                // Optional: console.log("Relaying data for: " + data.deviceId);
+            }
         } catch (e) {
-            console.log("⚠️ Bad data format from glove");
+            console.log("Malformed data from ESP32");
         }
     });
 });
-
 // Look for your io.on("connection") block
 // ===================== 8. UNIFIED SOCKET.IO LOGIC =====================
 
