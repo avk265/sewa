@@ -467,12 +467,24 @@ wss.on('connection', (ws) => {
     });
 });
 
-socket.on("hardware-alert", (data) => {
-    // Relay the critical bin alert to the Admin dashboard/drawer
-    io.emit("admin-notification", { 
-        type: "CRITICAL_ALERT", 
-        binId: data.binId, 
-        message: data.message 
+// Look for your io.on("connection") block
+io.on("connection", (socket) => {
+    console.log("🔌 New Client Connected: " + socket.id);
+
+    // 🟢 ADD THIS: Catch the alert from the Bin Simulator
+    socket.on("hardware-alert", (data) => {
+        console.log("🚨 Bin Alert Received:", data.message);
+        
+        // Broadcast to ALL connected clients (The Admin Drawer will hear this)
+        io.emit("admin-notification", {
+            type: "CRITICAL_ALERT",
+            binId: data.binId,
+            message: data.message || `Bin ${data.binId} is nearly full!`
+        });
+    });
+
+    socket.on("disconnect", () => {
+        console.log("❌ Client Disconnected");
     });
 });
 io.on("connection", (socket) => {
