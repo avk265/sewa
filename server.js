@@ -307,24 +307,7 @@ app.post("/admin/assign-glove", auth, adminOnly, async (req, res) => {
 
 // ================= 3. WEBSOCKET GATEKEEPER =================
 // Update your existing WebSocket logic
-const wss = new WebSocket.Server({ server, path: "/glove" });
-wss.on('connection', (ws) => {
-    ws.on('message', (msg) => {
-        try {
-            const data = JSON.parse(msg);
-            
-            // 🛡️ Filter out junk data, accept only SEWA hardware
-            if (data.protocol !== "SEWA_GLOVE_V1") return; 
 
-            // Relay to all Flutter clients (App will do the final ID check)
-            wss.clients.forEach(client => {
-                if (client !== ws && client.readyState === WebSocket.OPEN) {
-                    client.send(JSON.stringify(data));
-                }
-            });
-        } catch (e) { /* Ignore bad JSON */ }
-    });
-});
 // 🟢 GET USER-SPECIFIC CONTRIBUTION HISTORY
 // 🟢 GET USER-SPECIFIC CONTRIBUTION HISTORY
 // 🟢 STANDALONE HISTORY ROUTE
@@ -467,16 +450,22 @@ app.post("/update-game-progress", auth, async (req, res) => {
 
 const wss = new WebSocket.Server({ server, path: "/glove" });
 wss.on('connection', (ws) => {
-    console.log("🧤 Glove Connected");
     ws.on('message', (msg) => {
-        wss.clients.forEach(client => {
-            if (client !== ws && client.readyState === WebSocket.OPEN) {
-                client.send(msg.toString());
-            }
-        });
+        try {
+            const data = JSON.parse(msg);
+            
+            // 🛡️ Filter out junk data, accept only SEWA hardware
+            if (data.protocol !== "SEWA_GLOVE_V1") return; 
+
+            // Relay to all Flutter clients (App will do the final ID check)
+            wss.clients.forEach(client => {
+                if (client !== ws && client.readyState === WebSocket.OPEN) {
+                    client.send(JSON.stringify(data));
+                }
+            });
+        } catch (e) { /* Ignore bad JSON */ }
     });
 });
-
 io.on("connection", (socket) => {
     socket.on("hardware-status", (data) => io.emit("admin-notification", data));
 });
