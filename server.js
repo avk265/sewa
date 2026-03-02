@@ -552,42 +552,32 @@ app.post("/update-game-progress", auth, async (req, res) => {
 
 // 🟢 SECTION 8: THE HARDWARE-TO-APP BRIDGE
 const wss = new WebSocket.Server({ server, path: "/glove" });
-// In your Rehab/Glove script
-const gloveSocket = io(SERVER_URL, {
-    transports: ['websocket'], // 🟢 Must match the Admin App and Bin Simulator
-    upgrade: false,
-    forceNew: true
-});
+
 wss.on('connection', (ws) => {
     console.log("🦾 Hardware connected to /glove path");
 
     ws.on('message', (msg) => {
-    try {
-        const data = JSON.parse(msg);
-        
-        if (data.protocol === "SEWA_GLOVE_V1") {
-            // 🌉 THE BRIDGE: 
-            // We use the 'io' instance (Socket.io) to shout to the Web Game
-            const io = app.get("socketio"); 
+        try {
+            // msg comes from the Hardware Glove (Push)
+            const data = JSON.parse(msg);
             
-            // 🎯 Ensure the event name matches what your Game/Flutter is listening for
-            io.emit("rehab-game-sync", {
-                userId: data.userId,
-                flexValue: data.flexValue, // The finger movement
-                isGrabbed: data.isGrabbed,
-                deviceId: data.deviceId
-            });
-            
-            // Also notify admin of active session
-            io.emit("admin-notification", {
-                type: "GLOVE_ACTIVE",
-                message: `🦾 Rehab Session Active: ${data.deviceId}`
-            });
+            if (data.protocol === "SEWA_GLOVE_V1") {
+                const io = app.get("socketio"); 
+                
+                // 🌉 THE RELAY: This is what the Dart app "hears"
+                // We send the whole 'data' object so Dart gets t, i, m, r, p, ax, ay, az
+                io.emit("rehab-game-sync", data);
+                
+                // 🛡️ User-Specific Security (Optional but recommended)
+                // You can also emit to a specific room if you want only one user to hear it
+                // io.to(data.userId).emit("rehab-game-sync", data);
+
+                console.log(`📡 Relaying Glove [${data.deviceId}] data to User [${data.userId}]`);
+            }
+        } catch (e) {
+            console.log("Malformed data from ESP32");
         }
-    } catch (e) {
-        console.log("Malformed data from ESP32");
-    }
-});
+    });
 });
 // Look for your io.on("connection") block
 // ===================== 8. UNIFIED SOCKET.IO LOGIC =====================
