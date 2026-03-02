@@ -466,9 +466,7 @@ wss.on('connection', (ws) => {
         } catch (e) { /* Ignore bad JSON */ }
     });
 });
-io.on("connection", (socket) => {
-    socket.on("hardware-status", (data) => io.emit("admin-notification", data));
-});
+
 socket.on("hardware-alert", (data) => {
     // Relay the critical bin alert to the Admin dashboard/drawer
     io.emit("admin-notification", { 
@@ -476,6 +474,9 @@ socket.on("hardware-alert", (data) => {
         binId: data.binId, 
         message: data.message 
     });
+});
+io.on("connection", (socket) => {
+    socket.on("hardware-status", (data) => io.emit("admin-notification", data));
 });
 // ===================== 9. START SERVER =====================
 
