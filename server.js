@@ -17,6 +17,7 @@ const io = require("socket.io")(server, {
     },
   transports: ['websocket', 'polling']
 });
+app.set("socketio", io);
 
 app.use(express.static(__dirname));
 app.use(express.json()); 
