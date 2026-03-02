@@ -552,25 +552,42 @@ app.post("/update-game-progress", auth, async (req, res) => {
 
 // 🟢 SECTION 8: THE HARDWARE-TO-APP BRIDGE
 const wss = new WebSocket.Server({ server, path: "/glove" });
-
+// In your Rehab/Glove script
+const gloveSocket = io(SERVER_URL, {
+    transports: ['websocket'], // 🟢 Must match the Admin App and Bin Simulator
+    upgrade: false,
+    forceNew: true
+});
 wss.on('connection', (ws) => {
     console.log("🦾 Hardware connected to /glove path");
 
     ws.on('message', (msg) => {
-        try {
-            const data = JSON.parse(msg);
+    try {
+        const data = JSON.parse(msg);
+        
+        if (data.protocol === "SEWA_GLOVE_V1") {
+            // 🌉 THE BRIDGE: 
+            // We use the 'io' instance (Socket.io) to shout to the Web Game
+            const io = app.get("socketio"); 
             
-            // 🛡️ Verify the SEWA Protocol
-            if (data.protocol === "SEWA_GLOVE_V1") {
-                // 🌉 THE BRIDGE: This pushes hardware data to the Flutter app
-                io.emit("glove-data-stream", data); 
-                
-                // Optional: console.log("Relaying data for: " + data.deviceId);
-            }
-        } catch (e) {
-            console.log("Malformed data from ESP32");
+            // 🎯 Ensure the event name matches what your Game/Flutter is listening for
+            io.emit("rehab-game-sync", {
+                userId: data.userId,
+                flexValue: data.flexValue, // The finger movement
+                isGrabbed: data.isGrabbed,
+                deviceId: data.deviceId
+            });
+            
+            // Also notify admin of active session
+            io.emit("admin-notification", {
+                type: "GLOVE_ACTIVE",
+                message: `🦾 Rehab Session Active: ${data.deviceId}`
+            });
         }
-    });
+    } catch (e) {
+        console.log("Malformed data from ESP32");
+    }
+});
 });
 // Look for your io.on("connection") block
 // ===================== 8. UNIFIED SOCKET.IO LOGIC =====================
