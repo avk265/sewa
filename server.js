@@ -600,11 +600,9 @@ io.on("connection", (socket) => {
 
     // 🟢 B. Catch direct "admin-notification" (Used when simulator bypasses relay)
     socket.on("admin-notification", (data) => {
-        console.log("📢 Direct Admin Notification Relayed:", data.message);
-        // Relay to all other connected clients (The Flutter App)
-        io.emit("admin-notification", data);
-    });
-
+    console.log("📢 Direct Admin Notification Relayed:", data.message);
+    socket.broadcast.emit("admin-notification", data); // 👈 Safely relays to others
+});
     // 🟢 C. Catch "hardware-status" (Used for general bin health/heartbeats)
     socket.on("hardware-status", (data) => {
         console.log("🛰️ Hardware Status Update:", data.binId);
