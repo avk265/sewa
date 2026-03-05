@@ -582,6 +582,120 @@ wss.on('connection', (ws) => {
         }
     });
 });
+// ===================== 8B. SMART BIN HARDWARE BRIDGE =====================
+
+const binWSS = new WebSocket.Server({ server, path: "/bin-hardware" });
+
+binWSS.on("connection", (ws) => {
+
+    console.log("🗑️ Smart Bin connected");
+
+    ws.on("message", async (msg) => {
+
+        try {
+
+            const data = JSON.parse(msg);
+
+            console.log("📦 Bin Message:", data);
+
+            const io = app.get("socketio");
+
+            // HEARTBEAT
+            if (data.type === "heartbeat") {
+
+                console.log(`🛰️ Bin ${data.binId} alive`);
+
+                io.emit("admin-notification", {
+                    type: "BIN_STATUS",
+                    binId: data.binId,
+                    message: `Bin ${data.binId} online`
+                });
+
+            }
+
+            // BIN ALERT
+            if (data.type === "alert") {
+
+                console.log(`🚨 Alert from ${data.binId}`);
+
+                io.emit("admin-notification", {
+                    type: "CRITICAL_ALERT",
+                    binId: data.binId,
+                    message: data.message
+                });
+
+            }
+
+            // DEPOSIT EVENT
+            if (data.type === "deposit") {
+
+                const { binId, userId, weight, itemName } = data;
+
+                const user = await User.findById(userId);
+                const bin = await Bin.findOne({ binId });
+
+                if (!user || !bin) {
+                    console.log("Invalid bin or user");
+                    return;
+                }
+
+                const numWeight = parseFloat(weight);
+
+                const pointsEarned = Math.floor(
+                    10 * numWeight * Math.pow(0.95, user.recycledItemsCount || 0)
+                );
+
+                await User.findByIdAndUpdate(userId, {
+                    $inc: { greenPoints: pointsEarned, recycledItemsCount: 1 }
+                });
+
+                await Bin.findOneAndUpdate({ binId }, {
+                    $inc: { currentWeight: numWeight },
+                    $push: {
+                        inventory: {
+                            itemName,
+                            weight: numWeight,
+                            depositedBy: userId
+                        }
+                    }
+                });
+
+                await UserActivity.create({
+                    userId,
+                    type: "DEPOSIT",
+                    itemName,
+                    weight: numWeight,
+                    binId,
+                    points: pointsEarned,
+                    actionDetail: `Recycled ${itemName}`
+                });
+
+                io.emit("admin-notification", {
+                    type: "DEPOSIT_SUCCESS",
+                    binId,
+                    message: `${numWeight}kg ${itemName} deposited`
+                });
+
+                console.log(`♻️ Deposit stored for bin ${binId}`);
+
+            }
+
+        } catch (err) {
+
+            console.log("Invalid Smart Bin message");
+
+        }
+
+    });
+
+    ws.on("close", () => {
+
+        console.log("❌ Smart Bin disconnected");
+
+    });
+
+});
+
 // Look for your io.on("connection") block
 // ===================== 8. UNIFIED SOCKET.IO LOGIC =====================
 
