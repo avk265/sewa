@@ -379,38 +379,72 @@ app.get("/user/history", auth, async (req, res) => {
         res.status(500).json({ success: false, message: "Server error" });
     }
 });
+const binAccessSessions = {};
 app.post("/bin/scan-to-open", auth, async (req, res) => {
   let { binId } = req.body;
   if (typeof binId === 'object' && binId.binId) binId = binId.binId;
   binId = binId.toString().replace(/["'{}]/g, '').trim(); 
 
   try {
+
       const bin = await Bin.findOne({ binId });
       if (!bin) return res.status(404).json({ success: false, message: "Bin not found" });
 
-      // 🔴 Capacity Gatekeeper
-      // Inside your bin scan-to-open route
-if (bin.currentWeight >= bin.maxCapacity) {
-    console.log(`🚨 Bin ${binId} is full. Notifying Admins.`);
+      if (bin.currentWeight >= bin.maxCapacity) {
 
-    // 🟢 Broadly emit so both the Drawer (Static) and Dashboard (Live) hear it
-    io.emit("admin-notification", { 
-        type: "BIN_FULL", 
-        binId: binId, 
-        message: `CRITICAL: Bin ${binId} is at maximum capacity!` 
-    });
+        console.log(`🚨 Bin ${binId} is full`);
 
-    return res.json({ 
-        success: false, 
-        isFull: true, 
-        message: "This bin is currently full. Please find the nearest SEWA bin." 
-    });
-}
+        io.emit("admin-notification", { 
+            type: "BIN_FULL", 
+            binId,
+            message: `CRITICAL: Bin ${binId} full`
+        });
 
-      console.log(`🔓 Unlocking Bin: ${binId}`);
-      io.emit("admin-notification", { type: "BIN_ACCESS", binId, userId: req.userId });
+        return res.json({ 
+            success: false, 
+            isFull: true,
+            message: "This bin is currently full"
+        });
+
+      }
+
+      // ⭐ STORE USER SESSION FOR BIN
+      binAccessSessions[binId] = {
+          userId: req.userId,
+          time: Date.now()
+      };
+
+      console.log(`🔓 Unlocking Bin: ${binId} by ${req.userId}`);
+
+      io.emit("admin-notification", { 
+          type: "BIN_ACCESS", 
+          binId,
+          userId: req.userId
+      });
+
       res.json({ success: true });
-  } catch (error) { res.status(500).json({ success: false }); }
+
+  } catch (error) {
+      res.status(500).json({ success: false });
+  }
+});
+app.get("/bin/scan-to-open/:binId",(req,res)=>{
+
+  const binId = req.params.binId;
+
+  const session = binAccessSessions[binId];
+
+  if(!session){
+    return res.json({
+      active:false
+    });
+  }
+
+  res.json({
+    active:true,
+    userId:session.userId
+  });
+
 });
 app.get("/bin/status/:binId", async (req, res) => {
     try {
