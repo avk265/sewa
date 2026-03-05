@@ -488,51 +488,103 @@ app.get("/bin/status/:binId", async (req, res) => {
     }
 });
 app.post("/bin/hardware-deposit", async (req, res) => {
+
   const { binId, userId, weight, itemName, isMetal } = req.body;
-  
-  if (!isMetal) return res.status(400).json({ success: false, message: "NOT_METAL" });
+
+  console.log("📦 Hardware Deposit Request:", req.body);
+
+  if (!isMetal) {
+    return res.status(400).json({
+      success: false,
+      message: "NOT_METAL"
+    });
+  }
 
   try {
-    const io = req.app.get("socketio"); 
+
+    if (!binId || !userId || !weight) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields"
+      });
+    }
+
     const user = await User.findById(userId);
     const bin = await Bin.findOne({ binId });
 
-    if (!user || !bin) return res.status(404).json({ success: false });
+    if (!user) {
+      console.log("❌ User not found:", userId);
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
 
-    // 1. Calculate Rewards
+    if (!bin) {
+      console.log("❌ Bin not found:", binId);
+      return res.status(404).json({ success: false, message: "Bin not found" });
+    }
+
     const numWeight = parseFloat(weight);
-    const pointsEarned = Math.floor(10 * numWeight * Math.pow(0.95, user.recycledItemsCount || 0));
 
-    // 2. Atomic Updates (Weight and Points)
-    await User.findByIdAndUpdate(userId, { 
-        $inc: { greenPoints: pointsEarned, recycledItemsCount: 1 } 
+    const pointsEarned = Math.floor(
+      10 * numWeight * Math.pow(0.95, user.recycledItemsCount || 0)
+    );
+
+    await User.findByIdAndUpdate(userId, {
+      $inc: {
+        greenPoints: pointsEarned,
+        recycledItemsCount: 1
+      }
     });
-    
-    await Bin.findOneAndUpdate({ binId }, { 
+
+    await Bin.findOneAndUpdate(
+      { binId },
+      {
         $inc: { currentWeight: numWeight },
-        // Note: fillLevel update happens here or via a pre-save hook in Mongoose
-        $push: { inventory: { itemName, weight: numWeight, depositedBy: userId } }
-    });
+        $push: {
+          inventory: {
+            itemName: itemName || "Unknown Item",
+            weight: numWeight,
+            depositedBy: userId
+          }
+        }
+      }
+    );
 
-    // 3. Log Activity
     await UserActivity.create({
-        userId, type: 'DEPOSIT', itemName, weight: numWeight, binId, points: pointsEarned, actionDetail: `Recycled ${itemName}`
+      userId,
+      type: "DEPOSIT",
+      itemName: itemName || "Unknown Item",
+      weight: numWeight,
+      binId,
+      points: pointsEarned,
+      actionDetail: `Recycled ${itemName || "Unknown Item"}`
     });
 
-    // 4. Success "Shout" (Not an alert, just a confirmation)
-    io.emit("admin-notification", { 
-        type: "DEPOSIT_SUCCESS", 
-        binId, 
-        message: `New Deposit: ${numWeight}kg of ${itemName}` 
+    delete binAccessSessions[binId];
+
+    const io = req.app.get("socketio");
+
+    io.emit("admin-notification", {
+      type: "DEPOSIT_SUCCESS",
+      binId,
+      message: `${numWeight}kg deposited`
     });
 
-    res.json({ success: true, pointsEarned });
-      delete binAccessSessions[binId];
+    res.json({
+      success: true,
+      pointsEarned
+    });
 
-  } catch (e) { 
-      res.status(500).json({ success: false }); 
+  } catch (error) {
+
+    console.error("🔥 Hardware Deposit Error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Deposit failed"
+    });
+
   }
-    
+
 });
 // ===================== 6. MAPS & ADMIN =====================
 
