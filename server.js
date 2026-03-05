@@ -379,8 +379,7 @@ app.get("/user/history", auth, async (req, res) => {
         res.status(500).json({ success: false, message: "Server error" });
     }
 });
-const binAccessSessions = {};
-binAccessSessions[binId] = {
+const binAccessSessions[binId] = {
   userId: req.userId,
   time: Date.now()
 };
