@@ -379,11 +379,8 @@ app.get("/user/history", auth, async (req, res) => {
         res.status(500).json({ success: false, message: "Server error" });
     }
 });
-let binAccessSessions={};
-binAccessSessions[binId] = {
-  userId: req.userId,
-  time: Date.now()
-};
+const binAccessSessions={};
+
 app.post("/bin/scan-to-open", auth, async (req, res) => {
   let { binId } = req.body;
   if (typeof binId === 'object' && binId.binId) binId = binId.binId;
