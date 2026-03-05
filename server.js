@@ -429,10 +429,9 @@ app.post("/bin/scan-to-open", auth, async (req, res) => {
       res.status(500).json({ success: false });
   }
 });
-app.get("/bin/scan-to-open/:binId",(req,res)=>{
+app.get("/bin/scan-to-open/:binId", (req, res) => {
 
   const binId = req.params.binId;
-
   const session = binAccessSessions[binId];
 
   if (!session) {
@@ -444,7 +443,14 @@ app.get("/bin/scan-to-open/:binId",(req,res)=>{
     return res.json({ active: false });
   }
 
+  // ✅ SEND ACTIVE SESSION
+  res.json({
+    active: true,
+    userId: session.userId
+  });
+
 });
+
 app.get("/bin/status/:binId", async (req, res) => {
     try {
         const bin = await Bin.findOne({ binId: req.params.binId });
