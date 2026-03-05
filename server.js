@@ -582,13 +582,29 @@ wss.on('connection', (ws) => {
         }
     });
 });
-// ===================== 8B. SMART BIN HARDWARE BRIDGE =====================
+// ===================== SMART BIN WEBSOCKET =====================
 
-const binWSS = new WebSocket.Server({ server, path: "/bin-hardware" });
+// ===================== SMART BIN WEBSOCKET =====================
+
+const binWSS = new WebSocket.Server({ noServer: true });
+
+server.on("upgrade", (request, socket, head) => {
+
+    if (request.url === "/bin-hardware") {
+
+        binWSS.handleUpgrade(request, socket, head, (ws) => {
+
+            binWSS.emit("connection", ws, request);
+
+        });
+
+    }
+
+});
 
 binWSS.on("connection", (ws) => {
 
-    console.log("🗑️ Smart Bin connected");
+    console.log("🗑️ Smart Bin Connected");
 
     ws.on("message", async (msg) => {
 
@@ -635,8 +651,11 @@ binWSS.on("connection", (ws) => {
                 const bin = await Bin.findOne({ binId });
 
                 if (!user || !bin) {
+
                     console.log("Invalid bin or user");
+
                     return;
+
                 }
 
                 const numWeight = parseFloat(weight);
@@ -690,12 +709,11 @@ binWSS.on("connection", (ws) => {
 
     ws.on("close", () => {
 
-        console.log("❌ Smart Bin disconnected");
+        console.log("❌ Smart Bin Disconnected");
 
     });
 
 });
-
 // Look for your io.on("connection") block
 // ===================== 8. UNIFIED SOCKET.IO LOGIC =====================
 
