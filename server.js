@@ -380,6 +380,10 @@ app.get("/user/history", auth, async (req, res) => {
     }
 });
 const binAccessSessions = {};
+binAccessSessions[binId] = {
+  userId: req.userId,
+  time: Date.now()
+};
 app.post("/bin/scan-to-open", auth, async (req, res) => {
   let { binId } = req.body;
   if (typeof binId === 'object' && binId.binId) binId = binId.binId;
@@ -434,16 +438,16 @@ app.get("/bin/scan-to-open/:binId",(req,res)=>{
 
   const session = binAccessSessions[binId];
 
-  if(!session){
-    return res.json({
-      active:false
-    });
-  }
+ const session = binAccessSessions[binId];
 
-  res.json({
-    active:true,
-    userId:session.userId
-  });
+if (!session) {
+  return res.json({ active: false });
+}
+
+if (Date.now() - session.time > 30000) {
+  delete binAccessSessions[binId];
+  return res.json({ active: false });
+}
 
 });
 app.get("/bin/status/:binId", async (req, res) => {
@@ -523,11 +527,12 @@ app.post("/bin/hardware-deposit", async (req, res) => {
     });
 
     res.json({ success: true, pointsEarned });
+      delete binAccessSessions[binId];
 
   } catch (e) { 
       res.status(500).json({ success: false }); 
   }
-    delete binAccessSessions[binId];
+    
 });
 // ===================== 6. MAPS & ADMIN =====================
 
