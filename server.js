@@ -586,21 +586,9 @@ wss.on('connection', (ws) => {
 
 // ===================== SMART BIN WEBSOCKET =====================
 
-const binWSS = new WebSocket.Server({ noServer: true });
+// ===================== SMART BIN WEBSOCKET =====================
 
-server.on("upgrade", (request, socket, head) => {
-
-    if (request.url === "/bin-hardware") {
-
-        binWSS.handleUpgrade(request, socket, head, (ws) => {
-
-            binWSS.emit("connection", ws, request);
-
-        });
-
-    }
-
-});
+const binWSS = new WebSocket.Server({ server, path: "/bin-hardware" });
 
 binWSS.on("connection", (ws) => {
 
@@ -610,13 +598,11 @@ binWSS.on("connection", (ws) => {
 
         try {
 
-            const data = JSON.parse(msg);
-
+            const data = JSON.parse(msg.toString());
             console.log("📦 Bin Message:", data);
 
             const io = app.get("socketio");
 
-            // HEARTBEAT
             if (data.type === "heartbeat") {
 
                 console.log(`🛰️ Bin ${data.binId} alive`);
@@ -629,7 +615,6 @@ binWSS.on("connection", (ws) => {
 
             }
 
-            // BIN ALERT
             if (data.type === "alert") {
 
                 console.log(`🚨 Alert from ${data.binId}`);
@@ -642,7 +627,6 @@ binWSS.on("connection", (ws) => {
 
             }
 
-            // DEPOSIT EVENT
             if (data.type === "deposit") {
 
                 const { binId, userId, weight, itemName } = data;
@@ -651,11 +635,8 @@ binWSS.on("connection", (ws) => {
                 const bin = await Bin.findOne({ binId });
 
                 if (!user || !bin) {
-
                     console.log("Invalid bin or user");
-
                     return;
-
                 }
 
                 const numWeight = parseFloat(weight);
