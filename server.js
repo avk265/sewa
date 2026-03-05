@@ -10,6 +10,7 @@ const WebSocket = require('ws');
 
 const app = express();
 const server = http.createServer(app);
+
 const io = require("socket.io")(server, {
     cors: {
         origin: "*", // 🟢 Allows Flutter to connect
@@ -588,8 +589,25 @@ wss.on('connection', (ws) => {
 
 // ===================== SMART BIN WEBSOCKET =====================
 
-const binWSS = new WebSocket.Server({ server, path: "/bin-hardware" });
+const binWSS = new WebSocket.Server({ noServer: true });
+server.on("upgrade", (request, socket, head) => {
 
+    const pathname = request.url;
+
+    // Allow Smart Bin WebSocket
+    if (pathname === "/bin-hardware") {
+
+        binWSS.handleUpgrade(request, socket, head, function (ws) {
+            binWSS.emit("connection", ws, request);
+        });
+
+    } else {
+
+        socket.destroy(); // reject unknown upgrades
+
+    }
+
+});
 binWSS.on("connection", (ws) => {
 
     console.log("🗑️ Smart Bin Connected");
