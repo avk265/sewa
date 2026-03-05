@@ -590,21 +590,21 @@ wss.on('connection', (ws) => {
 // ===================== SMART BIN WEBSOCKET =====================
 
 const binWSS = new WebSocket.Server({ noServer: true });
+
 server.on("upgrade", (request, socket, head) => {
 
     const pathname = request.url;
 
-    // Allow Smart Bin WebSocket
+    // handle smart bin websocket
     if (pathname === "/bin-hardware") {
 
-        binWSS.handleUpgrade(request, socket, head, function (ws) {
+        binWSS.handleUpgrade(request, socket, head, (ws) => {
             binWSS.emit("connection", ws, request);
         });
 
     } else {
-
-        socket.destroy(); // reject unknown upgrades
-
+        // let Socket.IO handle its own upgrades
+        return;
     }
 
 });
