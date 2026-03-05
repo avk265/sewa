@@ -429,25 +429,34 @@ app.post("/bin/scan-to-open", auth, async (req, res) => {
       res.status(500).json({ success: false });
   }
 });
-app.get("/bin/scan-to-open/:binId", (req, res) => {
+app.get("/bin/scan-to-open/:binId", async (req, res) => {
 
-  const binId = req.params.binId;
-  const session = binAccessSessions[binId];
+  try {
 
-  if (!session) {
-    return res.json({ active: false });
+    const binId = req.params.binId;
+
+    console.log("ESP32 session check:", binId);
+
+    const session = binAccessSessions[binId];
+
+    if (!session) {
+      return res.json({ active: false });
+    }
+
+    if (Date.now() - session.time > 30000) {
+      delete binAccessSessions[binId];
+      return res.json({ active: false });
+    }
+
+    return res.json({
+      active: true,
+      userId: session.userId
+    });
+
+  } catch (err) {
+    console.error("Session route error:", err);
+    res.status(500).json({ active:false });
   }
-
-  if (Date.now() - session.time > 30000) {
-    delete binAccessSessions[binId];
-    return res.json({ active: false });
-  }
-
-  // ✅ SEND ACTIVE SESSION
-  res.json({
-    active: true,
-    userId: session.userId
-  });
 
 });
 
