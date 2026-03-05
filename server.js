@@ -527,6 +527,7 @@ app.post("/bin/hardware-deposit", async (req, res) => {
   } catch (e) { 
       res.status(500).json({ success: false }); 
   }
+    delete binAccessSessions[binId];
 });
 // ===================== 6. MAPS & ADMIN =====================
 
