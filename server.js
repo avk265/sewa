@@ -438,8 +438,6 @@ app.get("/bin/scan-to-open/:binId",(req,res)=>{
 
   const session = binAccessSessions[binId];
 
- const session = binAccessSessions[binId];
-
 if (!session) {
   return res.json({ active: false });
 }
