@@ -435,14 +435,14 @@ app.get("/bin/scan-to-open/:binId",(req,res)=>{
 
   const session = binAccessSessions[binId];
 
-if (!session) {
-  return res.json({ active: false });
-}
+  if (!session) {
+    return res.json({ active: false });
+  }
 
-if (Date.now() - session.time > 30000) {
-  delete binAccessSessions[binId];
-  return res.json({ active: false });
-}
+  if (Date.now() - session.time > 30000) {
+    delete binAccessSessions[binId];
+    return res.json({ active: false });
+  }
 
 });
 app.get("/bin/status/:binId", async (req, res) => {
