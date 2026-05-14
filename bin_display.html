@@ -8,10 +8,12 @@
         body { font-family: 'Segoe UI', sans-serif; background: #f4f7f6; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
         .main-container { text-align: center; background: white; padding: 30px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); width: 420px; border: 3px solid #2e7d32; }
         
+        /* Dynamic Progress Bar */
         .capacity-box { background: #f9f9f9; padding: 15px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #ddd; }
         .progress-bar-bg { width: 100%; height: 20px; background: #e0e0e0; border-radius: 10px; overflow: hidden; margin-top: 10px; }
         .progress-fill { height: 100%; width: 0%; transition: width 0.5s, background-color 0.5s; }
         
+        /* Bin UI */
         .bin-wrapper { position: relative; width: 180px; height: 250px; margin: 20px auto; }
         .bin-body { width: 160px; height: 200px; background: #2e7d32; border-radius: 0 0 15px 15px; position: absolute; bottom: 0; left: 10px; border: 4px solid #1b5e20; display: flex; align-items: center; justify-content: center; }
         .qr-sticker { width: 120px; height: 120px; background: white; padding: 5px; border-radius: 5px; }
@@ -21,6 +23,7 @@
         #waste-item { width: 60px; height: 60px; background: #37474f; color: white; border-radius: 10px; display: none; align-items: center; justify-content: center; font-size: 24px; position: absolute; top: -20px; right: -40px; cursor: grab; z-index: 15; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
         .status-badge { font-size: 1.5rem; font-weight: bold; color: #2e7d32; margin-bottom: 5px; }
         
+        /* Sensor Toggle & Dropdown */
         .sensor-toggle { margin-top: 15px; padding: 15px; background: #e8f5e9; border-radius: 8px; display: none; text-align: left; }
         .item-dropdown { width: 100%; padding: 8px; margin-bottom: 12px; border-radius: 5px; border: 1px solid #ccc; font-family: inherit; }
     </style>
@@ -28,8 +31,8 @@
 <body>
 
 <div class="main-container">
-    <div class="status-badge" id="status-text">Connecting...</div>
-    <p id="message" style="color: #666;">Waiting for SEWA Cloud</p>
+    <div class="status-badge" id="status-text">Loading DB...</div>
+    <p id="message" style="color: #666;">Connecting to SEWA Cloud</p>
 
     <div class="capacity-box">
         <div style="font-weight: bold; color: #555;">Bin Fill Level: <span id="pct-text">0%</span></div>
@@ -42,7 +45,9 @@
     <div class="bin-wrapper">
         <div id="bin-lid" class="bin-lid"></div>
         <div class="bin-body" id="drop-zone">
-            <div class="qr-sticker" id="qr-display"></div>
+            <div class="qr-sticker" id="qr-display">
+                <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=%7B%22binId%22%3A%22BIN001%22%7D" style="width:100%">
+            </div>
         </div>
         <div id="waste-item" draggable="true">📱</div>
     </div>
@@ -52,8 +57,6 @@
         <select id="item-selector" class="item-dropdown">
             <option value="Broken Smartphone">📱 Broken Smartphone (Metal)</option>
             <option value="Laptop Motherboard">💻 Laptop Motherboard (Metal)</option>
-            <option value="damaged pc">💻 PC waste (Metal)</option>
-            <option value="cpu scrap">💻 cpu scrap (Metal)</option>
             <option value="Copper Wire Scrap">🔌 Copper Wire Scrap (Metal)</option>
             <option value="Plastic Bottle">🥤 Plastic Bottle (Trash)</option>
         </select>
@@ -65,61 +68,35 @@
 </div>
 
 <script>
-    const SERVER_URL = "https://sewa-o947.onrender.com"; 
-    const BIN_ID = "BIN002"; 
-    
-    // FIX: Removed strict websocket transport to allow fallback polling
+    // 🛑 Make sure this matches your active Node server IP
+    const SERVER_URL = "enter_your_server_url"; 
+    const BIN_ID = "BIN001";
     const socket = io(SERVER_URL);
-    
     let userId = null;
     let isFull = false;
 
-    // Dynamically generate QR code
-    const qrData = JSON.stringify({ binId: BIN_ID });
-    document.getElementById("qr-display").innerHTML = 
-        `<img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(qrData)}" style="width:100%">`;
-
-    // ==========================================
-    // 1. STATUS CHECK
-    // ==========================================
-    async function checkAndAlertAdmin() {
+    // 1. Fetch Live Data on Page Load
+    async function loadBinData() {
         try {
             const res = await fetch(`${SERVER_URL}/bin/status/${BIN_ID}`);
             const data = await res.json();
             
             if (data.success) {
-                if (!isFull) {
-                    document.getElementById("status-text").innerText = "ONLINE"; 
-                    document.getElementById("status-text").style.color = "#2e7d32";
-                    document.getElementById("message").innerText = "Ready for scan.";
-                }
-
                 updateProgressBar(data.currentWeight, data.maxCapacity, data.fillPercentage);
-                
-                if (data.fillPercentage >= 90) {
-                    if (!isFull) {
-                        socket.emit("admin-notification", { 
-                            binId: BIN_ID, 
-                            message: `🚨 URGENT: Bin ${BIN_ID} is CRITICAL (${data.fillPercentage.toFixed(1)}%).`,
-                            type: "BIN_FULL" 
-                        });
-                        isFull = true; 
-                        document.getElementById("status-text").innerText = "BIN FULL";
-                        document.getElementById("status-text").style.color = "red";
-                        document.getElementById("message").innerText = "Cannot accept more waste.";
-                    }
+                if (data.fillPercentage >= 100) {
+                    isFull = true;
+                    document.getElementById("status-text").innerText = "BIN FULL";
+                    document.getElementById("status-text").style.color = "red";
+                    document.getElementById("message").innerText = "Please use another bin.";
                 } else {
-                    isFull = false;
+                    document.getElementById("status-text").innerText = "Ready to Scan";
+                    document.getElementById("message").innerText = "Scan the QR code to unlock";
                 }
             }
         } catch (e) {
-            document.getElementById("status-text").innerText = "SERVER ERROR";
-            document.getElementById("status-text").style.color = "red";
+            console.error("Failed to load DB data");
         }
     }
-
-    checkAndAlertAdmin();
-    setInterval(checkAndAlertAdmin, 300000); // Check every 5 mins
 
     function updateProgressBar(current, max, pct) {
         const fillEl = document.getElementById("progress-fill");
@@ -127,36 +104,18 @@
         document.getElementById("weight-text").innerText = `${current.toFixed(2)} / ${max} kg`;
         fillEl.style.width = `${Math.min(pct, 100)}%`;
 
-        if (pct >= 80) fillEl.style.backgroundColor = "#f44336"; 
-        else if (pct >= 50) fillEl.style.backgroundColor = "#ff9800"; 
-        else fillEl.style.backgroundColor = "#4caf50"; 
+        if (pct >= 80) fillEl.style.backgroundColor = "#f44336"; // Red
+        else if (pct >= 50) fillEl.style.backgroundColor = "#ff9800"; // Orange
+        else fillEl.style.backgroundColor = "#4caf50"; // Green
     }
 
-    // ==========================================
-    // 2. SOCKET LISTENER & UNLOCK LOGIC
-    // ==========================================
-    
-    socket.on("connect", () => {
-        console.log("✅ Connected to Socket Server");
-    });
+    loadBinData();
 
-    socket.onAny((eventName, data) => {
-        console.log(`[SOCKET RECEIVE] ${eventName}:`, data);
-        
-        // Ensure the event is an admin-notification and the bin isn't full
-        if (eventName === "admin-notification" && data && !isFull) {
-            
-            // FIX: Robust string matching (handles extra spaces)
-            const incomingType = (data.type || "").trim();
-            const incomingBinId = (data.binId || "").trim();
-            
-            if (incomingType === "BIN_ACCESS" && incomingBinId === BIN_ID) {
-                document.getElementById("message").innerText = "🟢 Unlock Signal Received!";
-                document.getElementById("message").style.color = "green";
-                
-                userId = data.userId || "Citizen";
-                openBin();
-            }
+    // 2. Listen for Unlock Signal
+    socket.on("admin-notification", (data) => {
+        if (data.type === "BIN_ACCESS" && data.binId === BIN_ID && !isFull) {
+            userId = data.userId;
+            openBin();
         }
     });
 
@@ -171,9 +130,7 @@
         setTimeout(() => document.getElementById("waste-item").style.display = "flex", 500);
     }
 
-    // ==========================================
-    // 3. DRAG, DROP & WEIGH
-    // ==========================================
+    // 3. Drag, Drop, and Validate
     const item = document.getElementById("waste-item");
     const dropZone = document.getElementById("drop-zone");
 
@@ -182,22 +139,23 @@
     dropZone.ondrop = (e) => {
         e.preventDefault();
         item.style.display = "none"; 
+        
+        // Let the server handle validation rejection if isMetal is false
         completeProcess();
     };
 
     async function completeProcess() {
-        if (!userId) return;
-
         document.getElementById("status-text").innerText = "WEIGHING...";
+
+        // 🟢 Get the selected item from the dropdown and the checkbox status
         const itemDropdown = document.getElementById("item-selector");
         const selectedItem = itemDropdown.options[itemDropdown.selectedIndex].value;
         const isMetal = document.getElementById("is-metal").checked;
 
+        // 🟢 Assign a realistic weight based on the selected object
         let weight = 0.2;
         if (selectedItem.includes("Laptop")) weight = 1.5;
         else if (selectedItem.includes("Wire")) weight = 0.5;
-        else if (selectedItem.includes("damaged pc")) weight = 5;
-        else if (selectedItem.includes("cpu scrap")) weight = 10;
         else if (selectedItem.includes("Smartphone")) weight = 0.3;
 
         setTimeout(async () => {
@@ -205,28 +163,40 @@
             document.getElementById("status-text").innerText = "SYNCING DB...";
             
             try {
+                console.log(`📤 Sending -> Bin: ${BIN_ID}, User: ${userId}, Item: ${selectedItem}, Metal: ${isMetal}`);
+                
                 const res = await fetch(`${SERVER_URL}/bin/hardware-deposit`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ binId: BIN_ID, userId: userId, weight: weight, itemName: selectedItem, isMetal: isMetal })
+                    body: JSON.stringify({ 
+                        binId: BIN_ID, 
+                        userId: userId, 
+                        weight: weight,
+                        itemName: selectedItem, // Track the specific object
+                        isMetal: isMetal        // Track the validation check
+                    })
                 });
                 
                 const result = await res.json();
+                console.log("📥 Server Response:", result); 
                 
+                // 🟢 ERROR HANDLING (Including Gatekeeper Rejections)
                 if (result.success) {
                     document.getElementById("status-text").innerText = "SUCCESS";
                     document.getElementById("status-text").style.color = "green";
                     document.getElementById("message").innerText = `Secured ${selectedItem} | +${result.pointsEarned} Pts!`;
-                    setTimeout(checkAndAlertAdmin, 1000); 
                 } else {
                     document.getElementById("status-text").innerText = "REJECTED";
                     document.getElementById("status-text").style.color = "red";
-                    document.getElementById("message").innerText = result.message || "Deposit Failed"; 
+                    document.getElementById("message").innerText = result.message; 
                 }
             } catch (e) {
                 document.getElementById("status-text").innerText = "NETWORK ERROR";
                 document.getElementById("status-text").style.color = "red";
+                document.getElementById("message").innerText = "Could not reach server.";
             }
+
+            // Reload to reset the UI and update the progress bar
             setTimeout(() => location.reload(), 4500);
         }, 2000);
     }
